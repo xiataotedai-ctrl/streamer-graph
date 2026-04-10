@@ -52,32 +52,37 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
 
     // Build annotation badges
     const badges: any[] = [];
-    if (showAnnotations && annotationFields && annotationFields.length > 0) {
-      const annotationTexts: string[] = [];
-      annotationFields.forEach(field => {
-        if (field === 'categories' && node.tags.categories[0]) {
-          annotationTexts.push(node.tags.categories[0]);
-        } else if (field === 'regions' && node.tags.regions[0]) {
-          annotationTexts.push(node.tags.regions[0]);
-        } else if (field === 'talents' && node.tags.talents[0]) {
-          annotationTexts.push(node.tags.talents[0]);
-        } else if (field === 'sections' && node.tags.sections[0]) {
-          annotationTexts.push(node.tags.sections[0]);
-        } else if (field === 'notes' && node.notes) {
-          annotationTexts.push(node.notes.length > 8 ? node.notes.slice(0, 8) + '…' : node.notes);
-        }
-      });
-      if (annotationTexts.length > 0) {
+    if (showAnnotations) {
+      let badgeText = '';
+      // Custom annotation takes priority
+      if (node.customAnnotation) {
+        badgeText = node.customAnnotation.length > 12 ? node.customAnnotation.slice(0, 12) + '…' : node.customAnnotation;
+      } else if (annotationFields && annotationFields.length > 0) {
+        const parts: string[] = [];
+        annotationFields.forEach(field => {
+          if (field === 'categories' && node.tags.categories[0]) parts.push(node.tags.categories[0]);
+          else if (field === 'regions' && node.tags.regions[0]) parts.push(node.tags.regions[0]);
+          else if (field === 'talents' && node.tags.talents[0]) parts.push(node.tags.talents[0]);
+          else if (field === 'sections' && node.tags.sections[0]) parts.push(node.tags.sections[0]);
+          else if (field === 'notes' && node.notes) parts.push(node.notes.length > 8 ? node.notes.slice(0, 8) + '…' : node.notes);
+        });
+        badgeText = parts.join(' · ');
+      }
+      if (badgeText) {
+        // Use node color for badge background tint
+        const badgeBg = color + '33'; // 20% opacity of node color
         badges.push({
-          text: annotationTexts.join(' · '),
+          text: badgeText,
           placement: 'bottom' as const,
-          offsetY: 6,
-          fill: '#aaa',
-          fontSize: 9,
-          backgroundFill: 'rgba(26, 26, 46, 0.9)',
+          offsetY: 8,
+          fill: '#e0e0e0',
+          fontSize: 10,
+          backgroundFill: badgeBg,
+          backgroundStroke: color,
+          backgroundLineWidth: 1,
           backgroundRadius: '4',
           backgroundOpacity: 1,
-          padding: [2, 6, 2, 6],
+          padding: [3, 8, 3, 8],
         });
       }
     }

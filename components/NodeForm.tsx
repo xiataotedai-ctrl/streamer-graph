@@ -28,6 +28,7 @@ export default function NodeForm({ open, onClose, onSave, onDelete, initialData 
   const [showAllGames, setShowAllGames] = useState(false);
   const [customSize, setCustomSize] = useState<number | undefined>(undefined);
   const [customColor, setCustomColor] = useState<string>('');
+  const [customAnnotation, setCustomAnnotation] = useState('');
 
   useEffect(() => {
     if (initialData) {
@@ -38,6 +39,7 @@ export default function NodeForm({ open, onClose, onSave, onDelete, initialData 
       setNotes(initialData.notes || '');
       setCustomSize(initialData.customSize);
       setCustomColor(initialData.customColor || '');
+      setCustomAnnotation(initialData.customAnnotation || '');
     } else {
       setName('');
       setPlatforms(['快手']);
@@ -46,6 +48,7 @@ export default function NodeForm({ open, onClose, onSave, onDelete, initialData 
       setNotes('');
       setCustomSize(undefined);
       setCustomColor('');
+      setCustomAnnotation('');
     }
   }, [initialData, open]);
 
@@ -71,6 +74,7 @@ export default function NodeForm({ open, onClose, onSave, onDelete, initialData 
       identityLevel,
       customSize: customSize || undefined,
       customColor: customColor || undefined,
+      customAnnotation: customAnnotation.trim() || undefined,
       notes: notes.trim() || undefined,
     };
     onSave(node);
@@ -243,10 +247,23 @@ export default function NodeForm({ open, onClose, onSave, onDelete, initialData 
         </div>
 
         {/* 备注 */}
-        <div className="mb-4">
+        <div className="mb-3">
           <label className="text-xs text-gray-400 mb-1 block">备注</label>
           <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="可选备注..."
             className="w-full bg-[#0f0f1a] border border-gray-700 rounded-lg px-3 py-2 text-sm h-16 resize-none" />
+        </div>
+
+        {/* 自定义标注 */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs text-gray-400">标注文本</label>
+            {customAnnotation && (
+              <button onClick={() => setCustomAnnotation('')} className="text-[10px] text-gray-600 hover:text-gray-400">重置</button>
+            )}
+          </div>
+          <input value={customAnnotation} onChange={e => setCustomAnnotation(e.target.value)} placeholder='自定义标注，如：快手一哥'
+            className="w-full bg-[#0f0f1a] border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+          <p className="text-[10px] text-gray-600 mt-1">开启标注显示后，此文本优先于标签自动生成</p>
         </div>
 
         {/* Actions */}

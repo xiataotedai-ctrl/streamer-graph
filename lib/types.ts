@@ -7,6 +7,7 @@ export interface StreamerNode {
   identityLevel: 1 | 2 | 3 | 4 | 5;  // 1=尾部, 5=头部
   customSize?: number;     // 手动覆盖大小
   customColor?: string;    // 手动覆盖颜色
+  customAnnotation?: string; // 自定义标注文本
   groupId?: string;        // 主要分组
   groupIds?: string[];     // 多分组归属
   notes?: string;          // 备注

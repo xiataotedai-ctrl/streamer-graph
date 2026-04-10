@@ -81,6 +81,9 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [hiddenNodeIds, setHiddenNodeIds] = useState<Set<string>>(new Set());
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -119,22 +122,6 @@ export default function Home() {
     });
   }, [graphData, showToast]);
 
-  // Undo: Ctrl+Z, Redo: Ctrl+Shift+Z
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          handleRedo();
-        } else {
-          handleUndo();
-        }
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [handleUndo, handleRedo]);
-
   // Compute highlighted nodes from filter
   const highlightedNodes = useMemo(() => {
     const hasFilters = filter.categories.length > 0 || filter.regions.length > 0 ||
@@ -169,6 +156,39 @@ export default function Home() {
     });
   }, []);
 
+  // Keyboard shortcuts: Ctrl+Z undo, Ctrl+Shift+Z redo, Delete node, Esc cancel
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) handleRedo(); else handleUndo();
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (contextMenu) { setContextMenu(null); return; }
+        if (connectMode) { setConnectMode(false); setConnectSource(null); return; }
+        if (showNodeForm) { setShowNodeForm(false); setEditingNode(null); return; }
+        if (showGroupForm) { setShowGroupForm(false); setEditingGroup(null); return; }
+        if (showEdgeEdit) { setShowEdgeEdit(false); setEditingEdge(null); return; }
+        if (selectedNodeId) { setSelectedNodeId(null); return; }
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodeId && !isReadOnly) {
+        e.preventDefault();
+        const node = graphData.nodes.find(n => n.id === selectedNodeId);
+        if (node) {
+          updateData(removeNode(graphData, selectedNodeId));
+          showToast(`已删除 ${node.name}`);
+          setSelectedNodeId(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleUndo, handleRedo, selectedNodeId, connectMode, contextMenu, showNodeForm, showGroupForm, showEdgeEdit, graphData, updateData, isReadOnly, showToast]);
+
   // --- Node handlers ---
   const handleNodeSave = useCallback((node: StreamerNode) => {
     const existing = graphData.nodes.find(n => n.id === node.id);
@@ -180,8 +200,10 @@ export default function Home() {
 
   const handleNodeClick = useCallback((nodeId: string | null) => {
     if (!nodeId) return;
+    setSelectedNodeId(nodeId);
+    setContextMenu(null);
 
-    // Single click only used for connect mode
+    // Connect mode
     if (connectMode) {
       if (!connectSource) {
         setConnectSource(nodeId);
@@ -284,7 +306,73 @@ export default function Home() {
     if (connectMode) {
       setConnectSource(null);
     }
+    setSelectedNodeId(null);
+    setContextMenu(null);
+    setHoverInfo(null);
   }, [connectMode]);
+
+  // --- Drag to combo: detect if node dropped inside a combo ---
+  const handleNodeDragEnd = useCallback((nodeId: string, _x: number, _y: number) => {
+    const graph = (window as any).__g6Graph;
+    if (!graph || isReadOnly) return;
+
+    // Get all combos' positions and check if node landed inside any
+    const nodePos = graph.getElementPosition(nodeId);
+    if (!nodePos) return;
+
+    for (const group of graphData.groups) {
+      try {
+        const comboPos = graph.getElementPosition(group.id);
+        if (!comboPos) continue;
+        // Get combo children to estimate radius
+        const memberCount = group.memberIds.length;
+        const radius = Math.max(80, memberCount * 25);
+        const dx = nodePos.x - comboPos.x;
+        const dy = nodePos.y - comboPos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < radius) {
+          // Node is inside this combo — add to group
+          const node = graphData.nodes.find(n => n.id === nodeId);
+          if (!node) continue;
+          const currentGroupIds = node.groupIds || [];
+          if (currentGroupIds.includes(group.id)) continue; // Already in group
+
+          // Add node to this group
+          const updatedGroup = { ...group, memberIds: [...group.memberIds, nodeId] };
+          let newData = updateGroup(graphData, group.id, updatedGroup);
+          const updatedNodes = newData.nodes.map(n => {
+            if (n.id === nodeId) return { ...n, groupIds: [...(n.groupIds || []), group.id] };
+            return n;
+          });
+          newData = { ...newData, nodes: updatedNodes };
+          updateData(newData);
+          showToast(`${node.name} 已加入 ${group.name}`);
+          return;
+        }
+      } catch {}
+    }
+  }, [graphData, updateData, isReadOnly, showToast]);
+
+  // --- Right-click context menu ---
+  const handleContextMenu = useCallback((nodeId: string, x: number, y: number) => {
+    if (isReadOnly) return;
+    setSelectedNodeId(nodeId);
+    setContextMenu({ nodeId, x, y });
+  }, [isReadOnly]);
+
+  // --- Hover info ---
+  const handleHover = useCallback((nodeId: string | null, x: number, y: number) => {
+    if (!nodeId) { setHoverInfo(null); return; }
+    setHoverInfo({ nodeId, x, y });
+  }, []);
+
+  // --- Double-click blank to create node ---
+  const handleCanvasDblClick = useCallback((_x: number, _y: number) => {
+    if (isReadOnly || connectMode) return;
+    setEditingNode(null);
+    setShowNodeForm(true);
+  }, [isReadOnly, connectMode]);
 
   // --- Import/Export/Share ---
   const handleExport = useCallback(() => {
@@ -483,6 +571,10 @@ export default function Home() {
           showAnnotations={showAnnotations}
           annotationFields={annotationFields}
           hiddenNodeIds={hiddenNodeIds}
+          onNodeDragEnd={handleNodeDragEnd}
+          onNodeContextMenu={handleContextMenu}
+          onNodeHover={handleHover}
+          onCanvasDblClick={handleCanvasDblClick}
         />
 
         {/* Top Toolbar */}
@@ -622,23 +714,92 @@ export default function Home() {
           </div>
         )}
 
-        {/* Stats + hints */}
-        <div className="absolute bottom-4 left-4 bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-3 py-1.5 text-xs text-gray-500 space-y-0.5">
+        {/* Stats + shortcuts */}
+        <div className="absolute bottom-4 left-4 bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-3 py-2 text-xs text-gray-500 space-y-1 pointer-events-none">
           <div>
             {graphData.nodes.length} 位主播 · {graphData.edges.length} 条关系 · {graphData.groups.length} 个圈层
             {highlightedNodes.size > 0 && ` · 筛选出 ${highlightedNodes.size} 人`}
+            {selectedNodeId && ` · 已选中 ${graphData.nodes.find(n => n.id === selectedNodeId)?.name || ''}`}
           </div>
-          <div className="text-[10px] text-gray-600">
-            双击节点编辑 · 点击关系线编辑关系 · Ctrl+Z 撤销
+          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] text-gray-600">
+            <span>双击节点</span><span className="text-gray-500">编辑</span>
+            <span>双击空白</span><span className="text-gray-500">添加主播</span>
+            <span>右键节点</span><span className="text-gray-500">更多操作</span>
+            <span>拖入圈层</span><span className="text-gray-500">自动加入</span>
+            <span>Delete</span><span className="text-gray-500">删除选中</span>
+            <span>Ctrl+Z</span><span className="text-gray-500">撤销</span>
+            <span>Esc</span><span className="text-gray-500">取消操作</span>
           </div>
         </div>
 
         {/* Toast */}
         {toast && (
-          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 bg-[#16213e] border border-gray-700 rounded-lg px-4 py-2 text-xs text-gray-300 shadow-lg">
+          <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-[#16213e] border border-gray-700 rounded-lg px-4 py-2 text-xs text-gray-300 shadow-lg z-40">
             {toast}
           </div>
         )}
+
+        {/* Right-click context menu */}
+        {contextMenu && !isReadOnly && (() => {
+          const ctxNode = graphData.nodes.find(n => n.id === contextMenu.nodeId);
+          if (!ctxNode) return null;
+          const nodeGroups = graphData.groups.filter(g => g.memberIds.includes(ctxNode.id));
+          return (
+            <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)}>
+              <div className="absolute bg-[#1a1a2e] border border-gray-700 rounded-lg py-1 shadow-xl min-w-[160px]"
+                style={{ left: contextMenu.x, top: contextMenu.y }}
+                onClick={e => e.stopPropagation()}>
+                <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-800">{ctxNode.name}</div>
+                <button onClick={() => { setEditingNode(ctxNode); setShowNodeForm(true); setContextMenu(null); }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-white/5 hover:text-white">编辑</button>
+                <button onClick={() => { setEditingNode(ctxNode); setShowNodeForm(true); setContextMenu(null); }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-white/5 hover:text-white">修改标注</button>
+                {nodeGroups.length > 0 && nodeGroups.map(g => (
+                  <button key={g.id} onClick={() => {
+                    const updatedMembers = g.memberIds.filter(id => id !== ctxNode.id);
+                    let newData = updateGroup(graphData, g.id, { ...g, memberIds: updatedMembers });
+                    const updatedNodes = newData.nodes.map(n =>
+                      n.id === ctxNode.id ? { ...n, groupIds: (n.groupIds || []).filter(id => id !== g.id) } : n
+                    );
+                    newData = { ...newData, nodes: updatedNodes };
+                    updateData(newData);
+                    showToast(`${ctxNode.name} 已移出 ${g.name}`);
+                    setContextMenu(null);
+                  }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-white/5 hover:text-white">移出「{g.name}」</button>
+                ))}
+                <div className="border-t border-gray-800 mt-1 pt-1">
+                  <button onClick={() => {
+                    updateData(removeNode(graphData, ctxNode.id));
+                    showToast(`已删除 ${ctxNode.name}`);
+                    setContextMenu(null);
+                    setSelectedNodeId(null);
+                  }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-red-900/20">删除</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Hover info card */}
+        {hoverInfo && (() => {
+          const hNode = graphData.nodes.find(n => n.id === hoverInfo.nodeId);
+          if (!hNode) return null;
+          return (
+            <div className="fixed bg-[#1a1a2e]/95 border border-gray-700 rounded-lg px-3 py-2 text-xs shadow-xl z-40 pointer-events-none max-w-[220px]"
+              style={{ left: hoverInfo.x + 12, top: hoverInfo.y + 12 }}>
+              <div className="font-bold text-gray-200 mb-1">{hNode.name}</div>
+              <div className="text-gray-500 space-y-0.5">
+                {hNode.platforms.length > 0 && <div>平台：{hNode.platforms.join('、')}</div>}
+                {hNode.tags.categories.length > 0 && <div>品类：{hNode.tags.categories.join('、')}</div>}
+                {hNode.tags.regions.length > 0 && <div>地域：{hNode.tags.regions.join('、')}</div>}
+                {hNode.tags.talents.length > 0 && <div>才艺：{hNode.tags.talents.join('、')}</div>}
+                {hNode.notes && <div className="text-gray-400">备注：{hNode.notes}</div>}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Subgraph Panel */}

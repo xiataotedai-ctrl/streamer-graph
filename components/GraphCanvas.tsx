@@ -11,6 +11,10 @@ interface GraphCanvasProps {
   onNodeDblClick?: (nodeId: string | null) => void;
   onEdgeClick?: (edgeId: string | null) => void;
   onCanvasClick?: () => void;
+  onCanvasDblClick?: (x: number, y: number) => void;
+  onNodeDragEnd?: (nodeId: string, x: number, y: number) => void;
+  onNodeContextMenu?: (nodeId: string, x: number, y: number) => void;
+  onNodeHover?: (nodeId: string | null, x: number, y: number) => void;
   highlightedNodes?: Set<string>;
   connectMode?: boolean;
   connectSource?: string | null;
@@ -20,17 +24,17 @@ interface GraphCanvasProps {
   hiddenNodeIds?: Set<string>;
 }
 
-export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick, highlightedNodes, connectMode, connectSource, sizeMode, showAnnotations, annotationFields, hiddenNodeIds }: GraphCanvasProps) {
+export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick, onCanvasDblClick, onNodeDragEnd, onNodeContextMenu, onNodeHover, highlightedNodes, connectMode, connectSource, sizeMode, showAnnotations, annotationFields, hiddenNodeIds }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const dataRef = useRef<GraphData>(data);
-  const callbacksRef = useRef({ onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick });
+  const callbacksRef = useRef({ onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick, onCanvasDblClick, onNodeDragEnd, onNodeContextMenu, onNodeHover });
   const positionsRef = useRef<Record<string, { x: number; y: number }>>({});
   const [graphReady, setGraphReady] = useState(false);
   const mountedRef = useRef(false);
 
   dataRef.current = data;
-  callbacksRef.current = { onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick };
+  callbacksRef.current = { onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick, onCanvasDblClick, onNodeDragEnd, onNodeContextMenu, onNodeHover };
 
   // Try every method to read a node's position from G6
   const readPosition = (graph: any, id: string): { x: number; y: number } | null => {
@@ -71,6 +75,40 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
     });
     graph.on('canvas:click', () => {
       if (callbacksRef.current.onCanvasClick) callbacksRef.current.onCanvasClick();
+    });
+    graph.on('canvas:dblclick', (evt: any) => {
+      if (callbacksRef.current.onCanvasDblClick) {
+        const canvas = evt?.canvas?.getBoundingClientRect?.();
+        callbacksRef.current.onCanvasDblClick(evt.client?.x ?? evt.canvasX ?? 0, evt.client?.y ?? evt.canvasY ?? 0);
+      }
+    });
+    graph.on('node:dragend', (evt: any) => {
+      const id = evt?.target?.id;
+      if (id) {
+        // Save position after drag
+        const pos = readPosition(graph, id);
+        if (pos) {
+          positionsRef.current = { ...positionsRef.current, [id]: pos };
+          saveGraphPositions(positionsRef.current);
+        }
+        if (callbacksRef.current.onNodeDragEnd) callbacksRef.current.onNodeDragEnd(id, pos?.x ?? 0, pos?.y ?? 0);
+      }
+    });
+    graph.on('node:contextmenu', (evt: any) => {
+      evt?.preventDefault?.();
+      const id = evt?.target?.id;
+      if (id && callbacksRef.current.onNodeContextMenu) {
+        callbacksRef.current.onNodeContextMenu(id, evt.client?.x ?? evt.clientX ?? 0, evt.client?.y ?? evt.clientY ?? 0);
+      }
+    });
+    graph.on('node:mouseenter', (evt: any) => {
+      const id = evt?.target?.id;
+      if (id && callbacksRef.current.onNodeHover) {
+        callbacksRef.current.onNodeHover(id, evt.client?.x ?? evt.clientX ?? 0, evt.client?.y ?? evt.clientY ?? 0);
+      }
+    });
+    graph.on('node:mouseleave', () => {
+      if (callbacksRef.current.onNodeHover) callbacksRef.current.onNodeHover(null, 0, 0);
     });
   };
 
