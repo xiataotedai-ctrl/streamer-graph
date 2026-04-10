@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import GraphCanvas from '@/components/GraphCanvas';
 import NodeForm from '@/components/NodeForm';
 import EdgeTypeSelector from '@/components/EdgeTypeSelector';
 import GroupForm from '@/components/GroupForm';
 import TagFilterSidebar from '@/components/TagFilterSidebar';
+import SubgraphPanel from '@/components/SubgraphPanel';
 import { GraphData, StreamerNode, StreamerGroup, RelationshipType, FilterState } from '@/lib/types';
-import { createEmptyGraph, addNode, updateNode, removeNode, addEdge, addGroup, updateGroup, genId } from '@/lib/graph-data';
-import { autoSave } from '@/lib/storage';
+import { createEmptyGraph, addNode, updateNode, removeNode, addEdge, addGroup, updateGroup, genId, extractSubgraph } from '@/lib/graph-data';
+import { autoSave, exportJSON, importJSON } from '@/lib/storage';
+import { encodeShareData } from '@/lib/share';
 
 const EMPTY_FILTER: FilterState = { categories: [], regions: [], talents: [], sections: [], identityLevels: [], customTags: [] };
 
@@ -44,10 +46,22 @@ export default function Home() {
   const [edgeSelectorPos, setEdgeSelectorPos] = useState({ x: 0, y: 0 });
   const [pendingEdge, setPendingEdge] = useState<{ source: string; target: string } | null>(null);
   const [sizeMode, setSizeMode] = useState<'manual' | 'auto'>('manual');
+  const [showSubgraph, setShowSubgraph] = useState(false);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<NodeJS.Timeout | null>(null);
+
   const [isReadOnly] = useState(() => {
     if (typeof window === 'undefined') return false;
     return new URLSearchParams(window.location.search).has('share');
   });
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current!);
+    toastTimer.current = setTimeout(() => setToast(null), 3000);
+  }, []);
 
   // Compute highlighted nodes from filter
   const highlightedNodes = useMemo(() => {
@@ -153,10 +167,66 @@ export default function Home() {
     updateData(newData);
   }, [graphData, updateData]);
 
+  const handleExport = useCallback(() => {
+    const filename = `${graphData.metadata.name || 'streamer-graph'}-${new Date().toISOString().slice(0, 10)}.json`;
+    exportJSON(graphData, filename);
+    showToast('已导出 JSON 文件');
+  }, [graphData, showToast]);
+
+  const handleImport = useCallback(async () => {
+    try {
+      const json = await importJSON();
+      const data = JSON.parse(json);
+      if (data?.nodes) {
+        updateData(data);
+        showToast(`已导入 ${data.nodes.length} 位主播`);
+      } else {
+        showToast('文件格式不正确');
+      }
+    } catch {
+      showToast('导入失败');
+    }
+  }, [updateData, showToast]);
+
+  const handleShare = useCallback(() => {
+    const encoded = encodeShareData(graphData);
+    if (!encoded) {
+      showToast('分享失败：数据过大');
+      return;
+    }
+    const url = `${window.location.origin}?share=${encoded}`;
+    navigator.clipboard.writeText(url).then(() => {
+      showToast('分享链接已复制到剪贴板');
+    }).catch(() => {
+      // Fallback: show in prompt
+      prompt('复制以下链接：', url);
+    });
+  }, [graphData, showToast]);
+
+  const handleExportSubgraph = useCallback((data: GraphData) => {
+    const filename = `subgraph-${new Date().toISOString().slice(0, 10)}.json`;
+    exportJSON(data, filename);
+    showToast(`已导出 ${data.nodes.length} 位主播的子图`);
+  }, [showToast]);
+
   return (
     <main className="flex h-screen w-screen overflow-hidden">
+      {/* Mobile hamburger */}
+      {!isReadOnly && (
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="fixed top-3 left-3 z-40 md:hidden bg-[#1a1a2e] rounded-lg p-2 text-gray-400 hover:text-white"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 12h18M3 6h18M3 18h18" />
+          </svg>
+        </button>
+      )}
+
       {/* Left Sidebar - Tag Filters */}
-      <TagFilterSidebar data={graphData} filter={filter} onFilterChange={setFilter} />
+      <aside className={`${sidebarOpen ? 'w-64' : 'w-0'} transition-all duration-200 bg-[#1a1a2e] border-r border-gray-800 overflow-y-auto flex-shrink-0 ${!sidebarOpen ? 'hidden md:block md:w-64' : ''}`}>
+        <TagFilterSidebar data={graphData} filter={filter} onFilterChange={setFilter} />
+      </aside>
 
       {/* Main Canvas */}
       <div className="flex-1 relative">
@@ -172,7 +242,7 @@ export default function Home() {
         {/* Top Toolbar */}
         {!isReadOnly && (
           <div className="absolute top-4 left-4 right-4 flex justify-between items-center pointer-events-none">
-            <div className="pointer-events-auto bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-4 py-2 flex gap-3">
+            <div className="pointer-events-auto bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-3 py-2 flex gap-2 flex-wrap">
               <button onClick={() => { setEditingNode(null); setShowNodeForm(true); }}
                 className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
                 + 添加主播
@@ -186,17 +256,29 @@ export default function Home() {
                 {sizeMode === 'auto' ? '按连接数' : '按等级'}
               </button>
             </div>
-            <div className="pointer-events-auto bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-4 py-2 flex gap-3">
+            <div className="pointer-events-auto bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-3 py-2 flex gap-2 flex-wrap">
               {selectedNodeId && (
                 <button onClick={handleDeleteNode}
                   className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 bg-red-900/30 rounded">
                   删除
                 </button>
               )}
-              <button className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
+              {selectedNodeIds.length > 1 && (
+                <button onClick={() => setShowSubgraph(true)}
+                  className="text-xs text-green-400 hover:text-green-300 px-3 py-1.5 bg-green-900/30 rounded">
+                  子图 ({selectedNodeIds.length})
+                </button>
+              )}
+              <button onClick={handleExport}
+                className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
                 导出
               </button>
-              <button className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
+              <button onClick={handleImport}
+                className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
+                导入
+              </button>
+              <button onClick={handleShare}
+                className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
                 分享链接
               </button>
             </div>
@@ -215,7 +297,23 @@ export default function Home() {
           {graphData.nodes.length} 位主播 · {graphData.edges.length} 条关系 · {graphData.groups.length} 个圈层
           {highlightedNodes.size > 0 && ` · 筛选出 ${highlightedNodes.size} 人`}
         </div>
+
+        {/* Toast */}
+        {toast && (
+          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 bg-[#16213e] border border-gray-700 rounded-lg px-4 py-2 text-xs text-gray-300 shadow-lg animate-pulse">
+            {toast}
+          </div>
+        )}
       </div>
+
+      {/* Subgraph Panel */}
+      <SubgraphPanel
+        open={showSubgraph}
+        onClose={() => setShowSubgraph(false)}
+        selectedNodeIds={selectedNodeIds}
+        fullData={graphData}
+        onExportSubgraph={handleExportSubgraph}
+      />
 
       {/* Node Form Modal */}
       <NodeForm
