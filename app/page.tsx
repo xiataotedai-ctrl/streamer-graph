@@ -1,13 +1,16 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import GraphCanvas from '@/components/GraphCanvas';
 import NodeForm from '@/components/NodeForm';
 import EdgeTypeSelector from '@/components/EdgeTypeSelector';
 import GroupForm from '@/components/GroupForm';
-import { GraphData, StreamerNode, StreamerGroup, RelationshipType } from '@/lib/types';
+import TagFilterSidebar from '@/components/TagFilterSidebar';
+import { GraphData, StreamerNode, StreamerGroup, RelationshipType, FilterState } from '@/lib/types';
 import { createEmptyGraph, addNode, updateNode, removeNode, addEdge, addGroup, updateGroup, genId } from '@/lib/graph-data';
 import { autoSave } from '@/lib/storage';
+
+const EMPTY_FILTER: FilterState = { categories: [], regions: [], talents: [], sections: [], identityLevels: [], customTags: [] };
 
 export default function Home() {
   const [graphData, setGraphData] = useState<GraphData>(() => {
@@ -32,7 +35,7 @@ export default function Home() {
   });
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [highlightedNodes, setHighlightedNodes] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<FilterState>({ ...EMPTY_FILTER });
   const [showNodeForm, setShowNodeForm] = useState(false);
   const [editingNode, setEditingNode] = useState<StreamerNode | null>(null);
   const [showGroupForm, setShowGroupForm] = useState(false);
@@ -44,6 +47,30 @@ export default function Home() {
     if (typeof window === 'undefined') return false;
     return new URLSearchParams(window.location.search).has('share');
   });
+
+  // Compute highlighted nodes from filter
+  const highlightedNodes = useMemo(() => {
+    const hasFilters = filter.categories.length > 0 || filter.regions.length > 0 ||
+      filter.talents.length > 0 || filter.identityLevels.length > 0;
+    if (!hasFilters) return new Set<string>();
+
+    const matching = new Set<string>();
+    graphData.nodes.forEach(node => {
+      const matchCategory = filter.categories.length === 0 ||
+        node.tags.categories.some(c => filter.categories.includes(c));
+      const matchRegion = filter.regions.length === 0 ||
+        node.tags.regions.some(r => filter.regions.includes(r));
+      const matchTalent = filter.talents.length === 0 ||
+        node.tags.talents.some(t => filter.talents.includes(t));
+      const matchLevel = filter.identityLevels.length === 0 ||
+        filter.identityLevels.includes(node.identityLevel);
+
+      if (matchCategory && matchRegion && matchTalent && matchLevel) {
+        matching.add(node.id);
+      }
+    });
+    return matching;
+  }, [filter, graphData.nodes]);
 
   // Auto-save on every change
   const updateData = useCallback((newData: GraphData) => {
@@ -128,10 +155,7 @@ export default function Home() {
   return (
     <main className="flex h-screen w-screen overflow-hidden">
       {/* Left Sidebar - Tag Filters */}
-      <aside className="w-64 bg-[#1a1a2e] border-r border-gray-800 p-4 overflow-y-auto flex-shrink-0">
-        <h2 className="text-sm font-semibold text-gray-400 mb-3">标签筛选</h2>
-        <p className="text-xs text-gray-500">筛选功能开发中...</p>
-      </aside>
+      <TagFilterSidebar data={graphData} filter={filter} onFilterChange={setFilter} />
 
       {/* Main Canvas */}
       <div className="flex-1 relative">
@@ -183,6 +207,7 @@ export default function Home() {
         {/* Stats */}
         <div className="absolute bottom-4 left-4 bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-3 py-1.5 text-xs text-gray-500">
           {graphData.nodes.length} 位主播 · {graphData.edges.length} 条关系 · {graphData.groups.length} 个圈层
+          {highlightedNodes.size > 0 && ` · 筛选出 ${highlightedNodes.size} 人`}
         </div>
       </div>
 
