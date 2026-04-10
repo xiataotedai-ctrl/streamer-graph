@@ -27,6 +27,7 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
   const callbacksRef = useRef({ onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick });
   const positionsRef = useRef<Record<string, { x: number; y: number }>>({});
   const [graphReady, setGraphReady] = useState(false);
+  const mountedRef = useRef(false);
 
   dataRef.current = data;
   callbacksRef.current = { onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick };
@@ -73,9 +74,8 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
     });
   };
 
-  // Build or rebuild the graph. Called on mount and after layout save.
+  // Build or rebuild the graph with current data and positions
   const buildGraph = (el: HTMLElement, skipLayout: boolean) => {
-    // Destroy previous graph if any
     if (graphRef.current) {
       setGraphReady(false);
       graphRef.current.destroy();
@@ -111,25 +111,27 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
   // Register bridge
   useEffect(() => {
     (window as any).__g6SaveLayout = handleSaveLayout;
-    return () => { (window as any).__g6SaveLayout = undefined; };
+    (window as any).__g6Graph = graphRef.current;
+    return () => {
+      (window as any).__g6SaveLayout = undefined;
+      (window as any).__g6Graph = undefined;
+    };
   });
 
-  // Expose graph instance for image export
+  // Update __g6Graph ref whenever graph changes
   useEffect(() => {
     (window as any).__g6Graph = graphRef.current;
-    return () => { (window as any).__g6Graph = undefined; };
-  });
+  }, [graphReady]);
 
-  // Create graph ONLY after data is loaded from localStorage (nodes > 0)
+  // Initial mount: create graph once data is available
   useEffect(() => {
     if (!containerRef.current) return;
-    if (graphRef.current) return; // Already created
-    if (data.nodes.length === 0) return; // Wait for data
+    if (mountedRef.current) return;
+    if (data.nodes.length === 0) return;
 
+    mountedRef.current = true;
     const saved = loadGraphPositions();
     positionsRef.current = saved;
-
-    // Skip force layout if we have saved positions for ALL nodes
     const allHavePositions = data.nodes.every(n => saved[n.id]);
 
     buildGraph(containerRef.current, allHavePositions);
@@ -145,16 +147,20 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
     };
   }, []);
 
-  // Update data when it changes (after graph is created)
+  // On data/option changes: save positions, then full rebuild to ensure combo sync
   useEffect(() => {
-    const graph = graphRef.current;
-    if (!graph) return;
-    setGraphReady(false);
-    const g6Data = toG6Data(data, sizeMode, positionsRef.current, showAnnotations, annotationFields);
-    graph.setData(g6Data);
-    graph.render().then(() => {
-      setGraphReady(true);
-    }).catch(() => {});
+    if (!mountedRef.current || !containerRef.current) return;
+
+    // Save current positions before rebuild
+    if (graphRef.current) {
+      savePositions(graphRef.current);
+    }
+
+    const saved = loadGraphPositions();
+    positionsRef.current = saved;
+    const allHavePositions = data.nodes.every(n => saved[n.id]);
+
+    buildGraph(containerRef.current, allHavePositions);
   }, [data, sizeMode, showAnnotations, annotationFields]);
 
   // Handle connect mode visual

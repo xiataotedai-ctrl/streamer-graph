@@ -45,7 +45,7 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
     // Cap at reasonable max
     if (size > 90) size = 90;
 
-    const comboId = node.groupIds?.[0] || node.groupId || undefined;
+    const comboId = node.groupIds?.[node.groupIds.length - 1] || node.groupId || undefined;
 
     // Font size scales with node size and name length
     const fontSize = size >= 56 ? 12 : size >= 40 ? 11 : 10;

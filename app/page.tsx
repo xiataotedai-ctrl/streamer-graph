@@ -322,7 +322,7 @@ export default function Home() {
     });
   }, [graphData, showToast]);
 
-  const handleExportImage = useCallback((mode: 'all' | 'visible') => {
+  const handleExportImage = useCallback(async (mode: 'all' | 'visible') => {
     const graph = (window as any).__g6Graph;
     if (!graph) {
       showToast('图表未就绪');
@@ -331,13 +331,12 @@ export default function Home() {
     setExportMenuOpen(false);
     try {
       if (mode === 'visible') {
-        // Temporarily hide dimmed/hidden nodes for clean export
-        const stateMap: Record<string, string[]> = {};
         const visibleIds = new Set(
           graphData.nodes
             .filter(n => !hiddenNodeIds.has(n.id))
             .map(n => n.id)
         );
+        const stateMap: Record<string, string[]> = {};
         graphData.nodes.forEach(n => {
           stateMap[n.id] = visibleIds.has(n.id) ? [] : ['dim'];
         });
@@ -345,52 +344,32 @@ export default function Home() {
           const bothVisible = visibleIds.has(e.source) && visibleIds.has(e.target);
           stateMap[e.id] = bothVisible ? [] : ['dim'];
         });
-        // Set dim to fully transparent for export
         graph.setElementState(stateMap);
 
-        // Patch dim state to be fully invisible for export
-        const origDim = { ...graph.getNodeData().reduce((acc: any, n: any) => { acc[n.id] = n.style; return acc; }, {}) };
-
-        // Use a short timeout to let G6 render the state change
-        setTimeout(() => {
-          try {
-            const dataURL = graph.toDataURL('image/png', {
-              backgroundColor: '#0f0f1a',
-              padding: [20, 20, 20, 20],
-            });
-            const a = document.createElement('a');
-            a.href = dataURL;
-            a.download = `${graphData.metadata.name || 'streamer-graph'}-${new Date().toISOString().slice(0, 10)}.png`;
-            a.click();
-            showToast(`已导出可见节点 (${visibleIds.size} 人)`);
-          } catch {
-            showToast('导出失败');
-          }
-        }, 100);
+        // Wait for G6 to render the state change
+        await new Promise(r => setTimeout(r, 500));
+        const dataURL: string = await graph.toDataURL({ type: 'image/png', mode: 'overall' });
+        const a = document.createElement('a');
+        a.href = dataURL;
+        a.download = `${graphData.metadata.name || 'streamer-graph'}-${new Date().toISOString().slice(0, 10)}.png`;
+        a.click();
+        showToast(`已导出可见节点 (${visibleIds.size} 人)`);
       } else {
-        // Export all — temporarily show all nodes
         const stateMap: Record<string, string[]> = {};
         graphData.nodes.forEach(n => { stateMap[n.id] = []; });
         graphData.edges.forEach(e => { stateMap[e.id] = []; });
         graph.setElementState(stateMap);
 
-        setTimeout(() => {
-          try {
-            const dataURL = graph.toDataURL('image/png', {
-              backgroundColor: '#0f0f1a',
-              padding: [20, 20, 20, 20],
-            });
-            const a = document.createElement('a');
-            a.href = dataURL;
-            a.download = `${graphData.metadata.name || 'streamer-graph'}-${new Date().toISOString().slice(0, 10)}.png`;
-            a.click();
-            showToast(`已导出全部节点 (${graphData.nodes.length} 人)`);
-          } catch {
-            showToast('导出失败');
-          }
-        }, 100);
+        await new Promise(r => setTimeout(r, 500));
+        const dataURL: string = await graph.toDataURL({ type: 'image/png', mode: 'overall' });
+        const a = document.createElement('a');
+        a.href = dataURL;
+        a.download = `${graphData.metadata.name || 'streamer-graph'}-${new Date().toISOString().slice(0, 10)}.png`;
+        a.click();
+        showToast(`已导出全部节点 (${graphData.nodes.length} 人)`);
       }
-    } catch {
+    } catch (e) {
+      console.error('Export failed:', e);
       showToast('导出失败');
     }
   }, [graphData, hiddenNodeIds, showToast]);
