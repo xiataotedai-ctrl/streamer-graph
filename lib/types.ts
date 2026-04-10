@@ -2,7 +2,7 @@
 export interface StreamerNode {
   id: string;
   name: string;
-  platform: string;        // 抖音/快手/B站/虎牙/斗鱼
+  platforms: string[];     // 支持多平台
   tags: StreamerTags;
   identityLevel: 1 | 2 | 3 | 4 | 5;  // 1=尾部, 5=头部
   customSize?: number;     // 手动覆盖大小

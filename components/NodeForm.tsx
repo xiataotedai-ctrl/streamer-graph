@@ -16,7 +16,7 @@ const EMPTY_TAGS: StreamerTags = { regions: [], categories: [], talents: [], sec
 
 export default function NodeForm({ open, onClose, onSave, initialData }: NodeFormProps) {
   const [name, setName] = useState('');
-  const [platform, setPlatform] = useState('抖音');
+  const [platforms, setPlatforms] = useState<string[]>(['快手']);
   const [identityLevel, setIdentityLevel] = useState<1|2|3|4|5>(3);
   const [tags, setTags] = useState<StreamerTags>({ ...EMPTY_TAGS });
   const [notes, setNotes] = useState('');
@@ -29,13 +29,13 @@ export default function NodeForm({ open, onClose, onSave, initialData }: NodeFor
   useEffect(() => {
     if (initialData) {
       setName(initialData.name);
-      setPlatform(initialData.platform);
+      setPlatforms(initialData.platforms?.length ? [...initialData.platforms] : ['快手']);
       setIdentityLevel(initialData.identityLevel);
       setTags({ ...initialData.tags });
       setNotes(initialData.notes || '');
     } else {
       setName('');
-      setPlatform('抖音');
+      setPlatforms(['快手']);
       setIdentityLevel(3);
       setTags({ ...EMPTY_TAGS });
       setNotes('');
@@ -59,7 +59,7 @@ export default function NodeForm({ open, onClose, onSave, initialData }: NodeFor
     const node: StreamerNode = {
       id: initialData?.id || genId(),
       name: name.trim(),
-      platform,
+      platforms,
       tags,
       identityLevel,
       notes: notes.trim() || undefined,
@@ -93,25 +93,32 @@ export default function NodeForm({ open, onClose, onSave, initialData }: NodeFor
             <input value={name} onChange={e => setName(e.target.value)} placeholder="输入主播名称"
               className="w-full bg-[#0f0f1a] border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
           </div>
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="text-xs text-gray-400 mb-1 block">平台</label>
-              <select value={platform} onChange={e => setPlatform(e.target.value)}
-                className="w-full bg-[#0f0f1a] border border-gray-700 rounded-lg px-3 py-2 text-sm">
-                {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">平台（可多选）</label>
+            <div className="flex flex-wrap gap-1.5">
+              {PLATFORMS.map(p => {
+                const active = platforms.includes(p);
+                return (
+                  <button key={p} onClick={() => setPlatforms(prev =>
+                    active ? prev.filter(x => x !== p) : [...prev, p]
+                  )}
+                    className={`text-xs px-2.5 py-1 rounded-full border ${active ? 'border-cyan-500/50 bg-cyan-500/10 text-cyan-400' : 'border-gray-700 text-gray-500'}`}>
+                    {p}
+                  </button>
+                );
+              })}
             </div>
-            <div className="flex-1">
-              <label className="text-xs text-gray-400 mb-1 block">身份等级</label>
-              <select value={identityLevel} onChange={e => setIdentityLevel(Number(e.target.value) as 1|2|3|4|5)}
-                className="w-full bg-[#0f0f1a] border border-gray-700 rounded-lg px-3 py-2 text-sm">
-                <option value={1}>尾部主播</option>
-                <option value={2}>中下部</option>
-                <option value={3}>腰部主播</option>
-                <option value={4}>头部主播</option>
-                <option value={5}>顶流</option>
-              </select>
-            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">身份等级</label>
+            <select value={identityLevel} onChange={e => setIdentityLevel(Number(e.target.value) as 1|2|3|4|5)}
+              className="w-full bg-[#0f0f1a] border border-gray-700 rounded-lg px-3 py-2 text-sm">
+              <option value={1}>尾部主播</option>
+              <option value={2}>中下部</option>
+              <option value={3}>腰部主播</option>
+              <option value={4}>头部主播</option>
+              <option value={5}>顶流</option>
+            </select>
           </div>
         </div>
 
