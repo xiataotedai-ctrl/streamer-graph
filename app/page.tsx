@@ -43,6 +43,7 @@ export default function Home() {
   const [edgeSelectorOpen, setEdgeSelectorOpen] = useState(false);
   const [edgeSelectorPos, setEdgeSelectorPos] = useState({ x: 0, y: 0 });
   const [pendingEdge, setPendingEdge] = useState<{ source: string; target: string } | null>(null);
+  const [sizeMode, setSizeMode] = useState<'manual' | 'auto'>('manual');
   const [isReadOnly] = useState(() => {
     if (typeof window === 'undefined') return false;
     return new URLSearchParams(window.location.search).has('share');
@@ -165,6 +166,7 @@ export default function Home() {
           onCanvasClick={() => { setSelectedNodeId(null); setEditingNode(null); }}
           highlightedNodes={highlightedNodes}
           onEdgeCreate={handleEdgeCreate}
+          sizeMode={sizeMode}
         />
 
         {/* Top Toolbar */}
@@ -178,6 +180,10 @@ export default function Home() {
               <button onClick={() => { setEditingGroup(null); setShowGroupForm(true); }}
                 className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
                 + 创建圈层
+              </button>
+              <button onClick={() => setSizeMode(m => m === 'manual' ? 'auto' : 'manual')}
+                className={`text-xs px-3 py-1.5 rounded ${sizeMode === 'auto' ? 'bg-blue-600 text-white' : 'text-gray-300 bg-[#16213e] hover:text-white'}`}>
+                {sizeMode === 'auto' ? '按连接数' : '按等级'}
               </button>
             </div>
             <div className="pointer-events-auto bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-4 py-2 flex gap-3">

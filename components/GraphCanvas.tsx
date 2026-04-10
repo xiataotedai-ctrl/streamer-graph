@@ -11,9 +11,10 @@ interface GraphCanvasProps {
   onCanvasClick?: () => void;
   highlightedNodes?: Set<string>;
   onEdgeCreate?: (source: string, target: string, position: { x: number; y: number }) => void;
+  sizeMode?: 'manual' | 'auto';
 }
 
-export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasClick, highlightedNodes, onEdgeCreate }: GraphCanvasProps) {
+export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasClick, highlightedNodes, onEdgeCreate, sizeMode }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const dataRef = useRef<GraphData>(data);
@@ -30,7 +31,7 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
     const graph = createGraph(containerRef.current);
     graphRef.current = graph;
 
-    const g6Data = toG6Data(dataRef.current);
+    const g6Data = toG6Data(dataRef.current, sizeMode);
     graph.setData(g6Data);
     graph.render();
 
@@ -80,7 +81,7 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph) return;
-    const g6Data = toG6Data(data);
+    const g6Data = toG6Data(data, sizeMode);
     graph.setData(g6Data);
     graph.render();
   }, [data]);

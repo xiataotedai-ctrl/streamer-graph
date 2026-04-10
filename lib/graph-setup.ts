@@ -2,12 +2,39 @@ import { Graph } from '@antv/g6';
 import { RELATIONSHIP_CONFIG, CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR, IDENTITY_SIZE, GROUP_COLORS, GROUP_BORDER_COLORS } from './constants';
 import { GraphData, StreamerNode, RelationshipEdge, StreamerGroup } from './types';
 
+// Compute node degree for auto-sizing
+function computeNodeDegrees(data: GraphData): Record<string, number> {
+  const degrees: Record<string, number> = {};
+  data.nodes.forEach(n => { degrees[n.id] = 0; });
+  data.edges.forEach(e => {
+    degrees[e.source] = (degrees[e.source] || 0) + 1;
+    degrees[e.target] = (degrees[e.target] || 0) + 1;
+  });
+  return degrees;
+}
+
+// Map degree to size range [24, 60]
+function degreeToSize(degree: number, maxDegree: number): number {
+  if (maxDegree === 0) return 30;
+  const minSize = 24;
+  const maxSize = 60;
+  return minSize + (degree / maxDegree) * (maxSize - minSize);
+}
+
 // Convert app data to G6 v5 data format
-export function toG6Data(data: GraphData) {
+export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual') {
+  const degrees = computeNodeDegrees(data);
+  const maxDegree = Math.max(1, ...Object.values(degrees));
+
   const nodes = data.nodes.map((node: StreamerNode) => {
     const mainCategory = node.tags.categories[0] || '';
     const color = CATEGORY_COLORS[mainCategory] || DEFAULT_CATEGORY_COLOR;
-    const size = node.customSize || IDENTITY_SIZE[node.identityLevel] || 30;
+    let size: number;
+    if (sizeMode === 'auto') {
+      size = degreeToSize(degrees[node.id] || 0, maxDegree);
+    } else {
+      size = node.customSize || IDENTITY_SIZE[node.identityLevel] || 30;
+    }
     const comboId = node.groupIds?.[0] || node.groupId || undefined;
 
     return {
