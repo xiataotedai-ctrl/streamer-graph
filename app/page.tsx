@@ -311,46 +311,46 @@ export default function Home() {
     setHoverInfo(null);
   }, [connectMode]);
 
-  // --- Drag to combo: detect if node dropped inside a combo ---
+  // --- Drag to combo: detect if node dropped inside a combo circle ---
   const handleNodeDragEnd = useCallback((nodeId: string, _x: number, _y: number) => {
-    const graph = (window as any).__g6Graph;
-    if (!graph || isReadOnly) return;
-
-    // Get all combos' positions and check if node landed inside any
-    const nodePos = graph.getElementPosition(nodeId);
+    if (isReadOnly) return;
+    // Use saved positions to check combo membership
+    const saved = JSON.parse(localStorage.getItem('streamer-graph-positions') || '{}');
+    const nodePos = saved[nodeId];
     if (!nodePos) return;
 
     for (const group of graphData.groups) {
-      try {
-        const comboPos = graph.getElementPosition(group.id);
-        if (!comboPos) continue;
-        // Get combo children to estimate radius
-        const memberCount = group.memberIds.length;
-        const radius = Math.max(80, memberCount * 25);
-        const dx = nodePos.x - comboPos.x;
-        const dy = nodePos.y - comboPos.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+      if (group.memberIds.length === 0) continue;
+      // Calculate combo center from current member positions
+      const memberPts = group.memberIds.map(id => saved[id]).filter(Boolean);
+      if (memberPts.length === 0) continue;
+      const pad = 70;
+      const xs = memberPts.map(p => p.x);
+      const ys = memberPts.map(p => p.y);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const rw = Math.max(Math.max(...xs) - Math.min(...xs) + pad * 2, 120) / 2;
+      const rh = Math.max(Math.max(...ys) - Math.min(...ys) + pad * 2, 120) / 2;
 
-        if (dist < radius) {
-          // Node is inside this combo — add to group
-          const node = graphData.nodes.find(n => n.id === nodeId);
-          if (!node) continue;
-          const currentGroupIds = node.groupIds || [];
-          if (currentGroupIds.includes(group.id)) continue; // Already in group
+      // Check if node is inside the ellipse
+      const dx = (nodePos.x - cx) / rw;
+      const dy = (nodePos.y - cy) / rh;
+      if (dx * dx + dy * dy <= 1) {
+        const node = graphData.nodes.find(n => n.id === nodeId);
+        if (!node) continue;
+        const currentGroupIds = node.groupIds || [];
+        if (currentGroupIds.includes(group.id)) continue;
 
-          // Add node to this group
-          const updatedGroup = { ...group, memberIds: [...group.memberIds, nodeId] };
-          let newData = updateGroup(graphData, group.id, updatedGroup);
-          const updatedNodes = newData.nodes.map(n => {
-            if (n.id === nodeId) return { ...n, groupIds: [...(n.groupIds || []), group.id] };
-            return n;
-          });
-          newData = { ...newData, nodes: updatedNodes };
-          updateData(newData);
-          showToast(`${node.name} 已加入 ${group.name}`);
-          return;
-        }
-      } catch {}
+        const updatedGroup = { ...group, memberIds: [...group.memberIds, nodeId] };
+        let newData = updateGroup(graphData, group.id, updatedGroup);
+        const updatedNodes = newData.nodes.map(n =>
+          n.id === nodeId ? { ...n, groupIds: [...(n.groupIds || []), group.id] } : n
+        );
+        newData = { ...newData, nodes: updatedNodes };
+        updateData(newData);
+        showToast(`${node.name} 已加入 ${group.name}`);
+        return;
+      }
     }
   }, [graphData, updateData, isReadOnly, showToast]);
 
@@ -575,6 +575,7 @@ export default function Home() {
           onNodeContextMenu={handleContextMenu}
           onNodeHover={handleHover}
           onCanvasDblClick={handleCanvasDblClick}
+          selectedNodeId={selectedNodeId}
         />
 
         {/* Top Toolbar */}
@@ -721,14 +722,14 @@ export default function Home() {
             {highlightedNodes.size > 0 && ` · 筛选出 ${highlightedNodes.size} 人`}
             {selectedNodeId && ` · 已选中 ${graphData.nodes.find(n => n.id === selectedNodeId)?.name || ''}`}
           </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] text-gray-600">
-            <span>双击节点</span><span className="text-gray-500">编辑</span>
-            <span>双击空白</span><span className="text-gray-500">添加主播</span>
-            <span>右键节点</span><span className="text-gray-500">更多操作</span>
-            <span>拖入圈层</span><span className="text-gray-500">自动加入</span>
-            <span>Delete</span><span className="text-gray-500">删除选中</span>
-            <span>Ctrl+Z</span><span className="text-gray-500">撤销</span>
-            <span>Esc</span><span className="text-gray-500">取消操作</span>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px]">
+            <span className="text-gray-500">双击节点</span><span className="text-gray-400">编辑</span>
+            <span className="text-gray-500">双击空白</span><span className="text-gray-400">添加主播</span>
+            <span className="text-gray-500">右键节点</span><span className="text-gray-400">更多操作</span>
+            <span className="text-gray-500">拖入圈层</span><span className="text-gray-400">自动加入</span>
+            <span className="text-gray-500">Delete</span><span className="text-gray-400">删除选中</span>
+            <span className="text-gray-500">Ctrl+Z</span><span className="text-gray-400">撤销</span>
+            <span className="text-gray-500">Esc</span><span className="text-gray-400">取消操作</span>
           </div>
         </div>
 

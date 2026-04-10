@@ -22,9 +22,10 @@ interface GraphCanvasProps {
   showAnnotations?: boolean;
   annotationFields?: string[];
   hiddenNodeIds?: Set<string>;
+  selectedNodeId?: string | null;
 }
 
-export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick, onCanvasDblClick, onNodeDragEnd, onNodeContextMenu, onNodeHover, highlightedNodes, connectMode, connectSource, sizeMode, showAnnotations, annotationFields, hiddenNodeIds }: GraphCanvasProps) {
+export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick, onCanvasDblClick, onNodeDragEnd, onNodeContextMenu, onNodeHover, highlightedNodes, connectMode, connectSource, sizeMode, showAnnotations, annotationFields, hiddenNodeIds, selectedNodeId }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const dataRef = useRef<GraphData>(data);
@@ -36,7 +37,6 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
   dataRef.current = data;
   callbacksRef.current = { onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick, onCanvasDblClick, onNodeDragEnd, onNodeContextMenu, onNodeHover };
 
-  // Try every method to read a node's position from G6
   const readPosition = (graph: any, id: string): { x: number; y: number } | null => {
     try { const p = graph.getElementPosition(id); if (p?.x !== undefined) return { x: p.x, y: p.y }; } catch {}
     try { const el = graph.getElement(id); if (el) { const p = el.getPosition?.(); if (p?.x !== undefined) return { x: p.x, y: p.y }; } } catch {}
@@ -44,7 +44,6 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
     return null;
   };
 
-  // Read all node positions, save to ref + localStorage, return count
   const savePositions = (graph: any): number => {
     const positions = { ...positionsRef.current };
     let count = 0;
@@ -59,7 +58,6 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
     return count;
   };
 
-  // Bind all interactive events on a graph instance
   const bindEvents = (graph: any) => {
     graph.on('node:click', (evt: any) => {
       const id = evt?.target?.id;
@@ -78,14 +76,12 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
     });
     graph.on('canvas:dblclick', (evt: any) => {
       if (callbacksRef.current.onCanvasDblClick) {
-        const canvas = evt?.canvas?.getBoundingClientRect?.();
-        callbacksRef.current.onCanvasDblClick(evt.client?.x ?? evt.canvasX ?? 0, evt.client?.y ?? evt.canvasY ?? 0);
+        callbacksRef.current.onCanvasDblClick(evt?.client?.x ?? 0, evt?.client?.y ?? 0);
       }
     });
     graph.on('node:dragend', (evt: any) => {
       const id = evt?.target?.id;
       if (id) {
-        // Save position after drag
         const pos = readPosition(graph, id);
         if (pos) {
           positionsRef.current = { ...positionsRef.current, [id]: pos };
@@ -98,13 +94,13 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
       evt?.preventDefault?.();
       const id = evt?.target?.id;
       if (id && callbacksRef.current.onNodeContextMenu) {
-        callbacksRef.current.onNodeContextMenu(id, evt.client?.x ?? evt.clientX ?? 0, evt.client?.y ?? evt.clientY ?? 0);
+        callbacksRef.current.onNodeContextMenu(id, evt?.client?.x ?? 0, evt?.client?.y ?? 0);
       }
     });
     graph.on('node:mouseenter', (evt: any) => {
       const id = evt?.target?.id;
       if (id && callbacksRef.current.onNodeHover) {
-        callbacksRef.current.onNodeHover(id, evt.client?.x ?? evt.clientX ?? 0, evt.client?.y ?? evt.clientY ?? 0);
+        callbacksRef.current.onNodeHover(id, evt?.client?.x ?? 0, evt?.client?.y ?? 0);
       }
     });
     graph.on('node:mouseleave', () => {
@@ -112,103 +108,83 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
     });
   };
 
-  // Build or rebuild the graph with current data and positions
   const buildGraph = (el: HTMLElement, skipLayout: boolean) => {
     if (graphRef.current) {
       setGraphReady(false);
       graphRef.current.destroy();
     }
-
     const graph = createGraph(el, skipLayout);
     graphRef.current = graph;
-
     const g6Data = toG6Data(dataRef.current, sizeMode, positionsRef.current, showAnnotations, annotationFields);
     graph.setData(g6Data);
     bindEvents(graph);
-
-    graph.render().then(() => {
-      setGraphReady(true);
-    }).catch(() => {});
+    graph.render().then(() => { setGraphReady(true); }).catch(() => {});
   };
 
-  // Save layout function — exposed via window bridge
   const handleSaveLayout = (): number => {
     const graph = graphRef.current;
     if (!graph) return 0;
-
     const count = savePositions(graph);
     if (count === 0) return 0;
-
-    // Rebuild graph WITHOUT layout so positions are locked in
-    if (containerRef.current) {
-      buildGraph(containerRef.current, true);
-    }
+    if (containerRef.current) buildGraph(containerRef.current, true);
     return count;
   };
 
-  // Register bridge
   useEffect(() => {
     (window as any).__g6SaveLayout = handleSaveLayout;
     (window as any).__g6Graph = graphRef.current;
-    return () => {
-      (window as any).__g6SaveLayout = undefined;
-      (window as any).__g6Graph = undefined;
-    };
+    return () => { (window as any).__g6SaveLayout = undefined; (window as any).__g6Graph = undefined; };
   });
 
-  // Update __g6Graph ref whenever graph changes
-  useEffect(() => {
-    (window as any).__g6Graph = graphRef.current;
-  }, [graphReady]);
+  useEffect(() => { (window as any).__g6Graph = graphRef.current; }, [graphReady]);
 
-  // Initial mount: create graph once data is available
+  // Initial mount
   useEffect(() => {
-    if (!containerRef.current) return;
-    if (mountedRef.current) return;
-    if (data.nodes.length === 0) return;
-
+    if (!containerRef.current || mountedRef.current || data.nodes.length === 0) return;
     mountedRef.current = true;
     const saved = loadGraphPositions();
     positionsRef.current = saved;
-    const allHavePositions = data.nodes.every(n => saved[n.id]);
-
-    buildGraph(containerRef.current, allHavePositions);
+    // Skip layout if MOST nodes have positions (not all — new nodes get placed by force)
+    const nodesWithPos = data.nodes.filter(n => saved[n.id]).length;
+    const skipLayout = nodesWithPos >= data.nodes.length * 0.7;
+    buildGraph(containerRef.current, skipLayout);
   }, [data]);
 
-  // Cleanup on unmount only
   useEffect(() => {
-    return () => {
-      if (graphRef.current) {
-        graphRef.current.destroy();
-        graphRef.current = null;
-      }
-    };
+    return () => { if (graphRef.current) { graphRef.current.destroy(); graphRef.current = null; } };
   }, []);
 
-  // On data/option changes: save positions, then full rebuild to ensure combo sync
+  // Data changes: save positions, rebuild
   useEffect(() => {
     if (!mountedRef.current || !containerRef.current) return;
-
-    // Save current positions before rebuild
-    if (graphRef.current) {
-      savePositions(graphRef.current);
-    }
-
+    if (graphRef.current) savePositions(graphRef.current);
     const saved = loadGraphPositions();
     positionsRef.current = saved;
-    const allHavePositions = data.nodes.every(n => saved[n.id]);
-
-    buildGraph(containerRef.current, allHavePositions);
+    // If most nodes have positions, skip layout (new nodes keep existing layout stable)
+    const nodesWithPos = data.nodes.filter(n => saved[n.id]).length;
+    const skipLayout = nodesWithPos >= data.nodes.length * 0.5;
+    buildGraph(containerRef.current, skipLayout);
   }, [data, sizeMode, showAnnotations, annotationFields]);
 
-  // Handle connect mode visual
+  // Selection state
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph || !graphReady) return;
+    try {
+      const stateMap: Record<string, string[]> = {};
+      data.nodes.forEach(n => { stateMap[n.id] = selectedNodeId === n.id ? ['selected'] : []; });
+      graph.setElementState(stateMap);
+    } catch {}
+  }, [selectedNodeId, data.nodes, graphReady]);
+
+  // Connect mode visual
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph || !graphReady) return;
     if (!connectMode || !connectSource) {
       try {
         const stateMap: Record<string, string[]> = {};
-        data.nodes.forEach(n => { stateMap[n.id] = []; });
+        data.nodes.forEach(n => { stateMap[n.id] = selectedNodeId === n.id ? ['selected'] : []; });
         graph.setElementState(stateMap);
       } catch {}
       return;
@@ -216,24 +192,23 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
     try {
       const stateMap: Record<string, string[]> = {};
       data.nodes.forEach(n => {
-        stateMap[n.id] = n.id === connectSource ? ['selected'] : [];
+        if (n.id === connectSource) stateMap[n.id] = ['selected'];
+        else stateMap[n.id] = [];
       });
       graph.setElementState(stateMap);
     } catch {}
-  }, [connectMode, connectSource, data.nodes, graphReady]);
+  }, [connectMode, connectSource, data.nodes, graphReady, selectedNodeId]);
 
-  // Handle highlight/dim from tag filter
+  // Highlight/dim from filter
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph || !highlightedNodes || !graphReady) return;
-
     try {
       const allNodeIds = data.nodes.map(n => n.id);
       const allEdgeIds = data.edges.map(e => e.id);
-
       if (highlightedNodes.size === 0) {
         const stateMap: Record<string, string[]> = {};
-        allNodeIds.forEach(id => { stateMap[id] = []; });
+        allNodeIds.forEach(id => { stateMap[id] = selectedNodeId === id ? ['selected'] : []; });
         allEdgeIds.forEach(id => { stateMap[id] = []; });
         graph.setElementState(stateMap);
       } else {
@@ -248,26 +223,18 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
         });
         graph.setElementState(stateMap);
       }
-    } catch (err) {
-      console.warn('setState failed:', err);
-    }
-  }, [highlightedNodes, data, graphReady]);
+    } catch (err) { console.warn('setState failed:', err); }
+  }, [highlightedNodes, data, graphReady, selectedNodeId]);
 
-  // Handle hidden nodes (per-node visibility toggle)
+  // Hidden nodes
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph || !graphReady) return;
     if (!hiddenNodeIds || hiddenNodeIds.size === 0) return;
-
     try {
       const stateMap: Record<string, string[]> = {};
-      data.nodes.forEach(n => {
-        stateMap[n.id] = hiddenNodeIds.has(n.id) ? ['dim'] : [];
-      });
-      data.edges.forEach(e => {
-        const anyHidden = hiddenNodeIds.has(e.source) || hiddenNodeIds.has(e.target);
-        stateMap[e.id] = anyHidden ? ['dim'] : [];
-      });
+      data.nodes.forEach(n => { stateMap[n.id] = hiddenNodeIds.has(n.id) ? ['dim'] : []; });
+      data.edges.forEach(e => { stateMap[e.id] = hiddenNodeIds.has(e.source) || hiddenNodeIds.has(e.target) ? ['dim'] : []; });
       graph.setElementState(stateMap);
     } catch {}
   }, [hiddenNodeIds, data.nodes, data.edges, graphReady]);
@@ -277,6 +244,7 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
       ref={containerRef}
       className="w-full h-full"
       style={{ background: '#0f0f1a', minHeight: '100%' }}
+      onContextMenu={e => e.preventDefault()}
     />
   );
 }

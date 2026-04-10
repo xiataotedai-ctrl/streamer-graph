@@ -21,10 +21,30 @@ function degreeToSize(degree: number, maxDegree: number): number {
   return minSize + (degree / maxDegree) * (maxSize - minSize);
 }
 
+// Calculate combo bounds from member node positions
+function calcComboBounds(memberIds: string[], positions: Record<string, { x: number; y: number }>) {
+  const pts = memberIds.map(id => positions[id]).filter(Boolean);
+  if (pts.length === 0) return { x: 0, y: 0, rw: 120, rh: 120 };
+  const pad = 70;
+  const xs = pts.map(p => p.x);
+  const ys = pts.map(p => p.y);
+  const minX = Math.min(...xs) - pad;
+  const maxX = Math.max(...xs) + pad;
+  const minY = Math.min(...ys) - pad;
+  const maxY = Math.max(...ys) + pad;
+  return {
+    x: (minX + maxX) / 2,
+    y: (minY + maxY) / 2,
+    rw: Math.max(maxX - minX, 120),
+    rh: Math.max(maxY - minY, 120),
+  };
+}
+
 // Convert app data to G6 v5 data format
 export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual', positions?: Record<string, { x: number; y: number }>, showAnnotations?: boolean, annotationFields?: string[]) {
   const degrees = computeNodeDegrees(data);
   const maxDegree = Math.max(1, ...Object.values(degrees));
+  const pos = positions || {};
 
   const nodes = data.nodes.map((node: StreamerNode) => {
     const mainCategory = node.tags.categories[0] || '';
@@ -42,19 +62,14 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
     const nameLen = node.name.length;
     const neededForName = nameLen * 12 + 16;
     if (neededForName > size) size = neededForName;
-    // Cap at reasonable max
     if (size > 90) size = 90;
 
-    const comboId = node.groupIds?.[node.groupIds.length - 1] || node.groupId || undefined;
-
-    // Font size scales with node size and name length
     const fontSize = size >= 56 ? 12 : size >= 40 ? 11 : 10;
 
     // Build annotation badges
     const badges: any[] = [];
     if (showAnnotations) {
       let badgeText = '';
-      // Custom annotation takes priority
       if (node.customAnnotation) {
         badgeText = node.customAnnotation.length > 12 ? node.customAnnotation.slice(0, 12) + '…' : node.customAnnotation;
       } else if (annotationFields && annotationFields.length > 0) {
@@ -69,8 +84,7 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
         badgeText = parts.join(' · ');
       }
       if (badgeText) {
-        // Use node color for badge background tint
-        const badgeBg = color + '33'; // 20% opacity of node color
+        const badgeBg = color + '33';
         badges.push({
           text: badgeText,
           placement: 'bottom' as const,
@@ -89,7 +103,7 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
 
     return {
       id: node.id,
-      ...(comboId ? { combo: comboId } : {}),
+      // No combo binding — nodes are free-floating
       style: {
         size,
         fill: color,
@@ -103,8 +117,7 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
         labelPlacement: 'center' as const,
         labelOffsetY: 0,
         ...(badges.length > 0 ? { badges } : {}),
-        // Preserve position from previous layout
-        ...(positions?.[node.id] ? { x: positions[node.id].x, y: positions[node.id].y } : {}),
+        ...(pos[node.id] ? { x: pos[node.id].x, y: pos[node.id].y } : {}),
       },
       data: { _originalData: node },
     };
@@ -137,15 +150,21 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
     };
   });
 
+  // Combos: calculated from member positions, not bound to nodes
   const combos = data.groups.map((group: StreamerGroup, index: number) => {
     const colorIndex = index % GROUP_COLORS.length;
+    const bounds = calcComboBounds(group.memberIds, pos);
     return {
       id: group.id,
       style: {
+        x: bounds.x,
+        y: bounds.y,
+        size: Math.max(bounds.rw, bounds.rh),
         fill: GROUP_COLORS[colorIndex],
         stroke: GROUP_BORDER_COLORS[colorIndex],
         lineWidth: 2,
         lineDash: [4, 4],
+        fillOpacity: 1,
         labelText: group.name,
         labelFill: GROUP_BORDER_COLORS[colorIndex].replace('0.6', '1'),
         labelFontSize: 13,
@@ -166,6 +185,7 @@ export function createGraph(container: HTMLElement, skipLayout = false) {
     autoFit: 'view',
     padding: [30, 30, 30, 30],
     animation: false,
+    devicePixelRatio: typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 2,
     node: {
       type: 'circle',
       state: {
@@ -175,14 +195,16 @@ export function createGraph(container: HTMLElement, skipLayout = false) {
           lineWidth: 3,
         },
         dim: {
-          fillOpacity: 0.12,
-          strokeOpacity: 0.12,
-          labelFillOpacity: 0.12,
+          fillOpacity: 0.05,
+          strokeOpacity: 0.05,
+          labelFillOpacity: 0.05,
         },
         selected: {
-          lineWidth: 3,
-          stroke: '#ffffff',
+          lineWidth: 4,
+          stroke: '#00ff88',
           strokeOpacity: 1,
+          shadowColor: '#00ff88',
+          shadowBlur: 20,
         },
       },
     },
@@ -207,7 +229,6 @@ export function createGraph(container: HTMLElement, skipLayout = false) {
     combo: {
       type: 'circle',
     },
-    // Only run force layout when no saved positions exist
     ...(skipLayout ? {} : {
       layout: {
         type: 'force',
