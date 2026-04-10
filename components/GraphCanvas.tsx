@@ -38,15 +38,16 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
       setGraphReady(true);
     }).catch(() => {});
 
-    // Bind events
+    // Bind events — try multiple property paths for G6 v5 compatibility
     graph.on('node:click', (evt: any) => {
-      const nodeId = evt.target?.id || evt.itemId || null;
-      if (onNodeClick) onNodeClick(nodeId);
+      // G6 v5 event: try itemId first, then target.id, then target.id
+      const nodeId = evt?.itemId || evt?.target?.id || evt?.item?.id || evt?.id || null;
+      if (onNodeClick && nodeId) onNodeClick(nodeId);
     });
 
     graph.on('edge:click', (evt: any) => {
-      const edgeId = evt.target?.id || evt.itemId || null;
-      if (onEdgeClick) onEdgeClick(edgeId);
+      const edgeId = evt?.itemId || evt?.target?.id || evt?.item?.id || evt?.id || null;
+      if (onEdgeClick && edgeId) onEdgeClick(edgeId);
     });
 
     graph.on('canvas:click', () => {

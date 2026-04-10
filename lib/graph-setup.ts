@@ -167,15 +167,11 @@ export function createGraph(container: HTMLElement) {
       type: 'circle',
     },
     layout: {
-      type: 'combo-combined',
-      comboPadding: 30,
-      innerLayout: {
-        type: 'force',
-        preventOverlap: true,
-        nodeSize: 60,
-        linkDistance: 120,
-        nodeStrength: -200,
-      },
+      type: 'force',
+      preventOverlap: true,
+      nodeSize: 60,
+      linkDistance: 150,
+      nodeStrength: -300,
     },
     behaviors: [
       'drag-canvas',

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import GraphCanvas from '@/components/GraphCanvas';
 import NodeForm from '@/components/NodeForm';
 import EdgeTypeSelector from '@/components/EdgeTypeSelector';
@@ -16,26 +16,37 @@ import { encodeShareData } from '@/lib/share';
 const EMPTY_FILTER: FilterState = { categories: [], regions: [], talents: [], sections: [], identityLevels: [], customTags: [] };
 
 export default function Home() {
-  const [graphData, setGraphData] = useState<GraphData>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const shareData = params.get('share');
-        if (shareData) {
-          const decoded = JSON.parse(decodeURIComponent(atob(shareData)));
-          if (decoded?.nodes) return decoded;
+  // Start with empty graph, load from localStorage in useEffect (SSR safe)
+  const [graphData, setGraphData] = useState<GraphData>(() => createEmptyGraph('圈层关系图', ''));
+  const [loaded, setLoaded] = useState(false);
+
+  // Load persisted data after mount (client-side only)
+  useEffect(() => {
+    try {
+      // Check share link first
+      const params = new URLSearchParams(window.location.search);
+      const shareData = params.get('share');
+      if (shareData) {
+        const decoded = JSON.parse(decodeURIComponent(atob(shareData)));
+        if (decoded?.nodes) {
+          setGraphData(decoded);
+          setLoaded(true);
+          return;
         }
-      } catch {}
-      try {
-        const saved = localStorage.getItem('streamer-graph-data');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed?.nodes) return parsed;
+      }
+      // Load from localStorage
+      const saved = localStorage.getItem('streamer-graph-data');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.nodes && parsed.nodes.length > 0) {
+          setGraphData(parsed);
         }
-      } catch {}
+      }
+    } catch (e) {
+      console.error('Failed to load saved data:', e);
     }
-    return createEmptyGraph('圈层关系图', '');
-  });
+    setLoaded(true);
+  }, []);
 
   const [filter, setFilter] = useState<FilterState>({ ...EMPTY_FILTER });
   const [showNodeForm, setShowNodeForm] = useState(false);
@@ -44,7 +55,7 @@ export default function Home() {
   const [editingGroup, setEditingGroup] = useState<StreamerGroup | null>(null);
   const [sizeMode, setSizeMode] = useState<'manual' | 'auto'>('manual');
 
-  // Connect mode: click source → click target → select type → create edge
+  // Connect mode
   const [connectMode, setConnectMode] = useState(false);
   const [connectSource, setConnectSource] = useState<string | null>(null);
   const [edgeSelectorOpen, setEdgeSelectorOpen] = useState(false);
@@ -54,6 +65,9 @@ export default function Home() {
   // Edge editing
   const [editingEdge, setEditingEdge] = useState<RelationshipEdge | null>(null);
   const [showEdgeEdit, setShowEdgeEdit] = useState(false);
+
+  // Undo history
+  const [history, setHistory] = useState<GraphData[]>([]);
 
   const [showSubgraph, setShowSubgraph] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -71,6 +85,25 @@ export default function Home() {
     if (toastTimer.current) clearTimeout(toastTimer.current!);
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   }, []);
+
+  // Undo: Ctrl+Z
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        e.preventDefault();
+        setHistory(prev => {
+          if (prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
+          setGraphData(last);
+          autoSave(JSON.stringify(last));
+          showToast('已撤销');
+          return prev.slice(0, -1);
+        });
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [showToast]);
 
   // Compute highlighted nodes from filter
   const highlightedNodes = useMemo(() => {
@@ -97,8 +130,12 @@ export default function Home() {
   }, [filter, graphData.nodes]);
 
   const updateData = useCallback((newData: GraphData) => {
-    setGraphData(newData);
-    autoSave(JSON.stringify(newData));
+    setGraphData(prev => {
+      // Push previous state to history (limit 30)
+      setHistory(h => [...h.slice(-29), prev]);
+      autoSave(JSON.stringify(newData));
+      return newData;
+    });
   }, []);
 
   // --- Node handlers ---
@@ -115,11 +152,9 @@ export default function Home() {
 
     if (connectMode) {
       if (!connectSource) {
-        // First click: set source
         setConnectSource(nodeId);
         showToast('已选择起点，请点击目标主播');
       } else if (nodeId !== connectSource) {
-        // Second click: set target, show type selector
         setPendingTarget(nodeId);
         setEdgeSelectorPos({ x: window.innerWidth / 2 - 70, y: window.innerHeight / 2 - 100 });
         setEdgeSelectorOpen(true);
@@ -185,7 +220,6 @@ export default function Home() {
     } else {
       newData = addGroup(graphData, group);
     }
-    // Update member nodes' groupIds
     const updatedNodes = newData.nodes.map(node => {
       const isInGroup = group.memberIds.includes(node.id);
       const currentGroupIds = node.groupIds || [];
@@ -316,7 +350,7 @@ export default function Home() {
               <button onClick={() => {
                 setConnectMode(!connectMode);
                 setConnectSource(null);
-                if (!connectMode) showToast('连接模式：点击起点主播，再点击目标主播');
+                if (!connectMode) showToast('连接模式：先点起点主播，再点目标主播');
               }}
                 className={`text-xs px-3 py-1.5 rounded ${connectMode ? 'bg-green-600 text-white' : 'text-gray-300 bg-[#16213e] hover:text-white'}`}>
                 {connectMode ? '连接中...' : '建立关系'}
@@ -366,7 +400,7 @@ export default function Home() {
             {highlightedNodes.size > 0 && ` · 筛选出 ${highlightedNodes.size} 人`}
           </div>
           <div className="text-[10px] text-gray-600">
-            点击节点编辑 · 点击关系线编辑/删除 · "建立关系"按钮连接两个主播
+            点击节点编辑 · 点击关系线编辑关系 · Ctrl+Z 撤销
           </div>
         </div>
 
@@ -405,7 +439,7 @@ export default function Home() {
         initialData={editingGroup}
       />
 
-      {/* Edge Type Selector (for new edges) */}
+      {/* Edge Type Selector */}
       <EdgeTypeSelector
         open={edgeSelectorOpen}
         position={edgeSelectorPos}
@@ -413,7 +447,7 @@ export default function Home() {
         onCancel={() => { setEdgeSelectorOpen(false); setConnectSource(null); setPendingTarget(null); }}
       />
 
-      {/* Edge Edit Form (for existing edges) */}
+      {/* Edge Edit Form */}
       <EdgeEditForm
         open={showEdgeEdit}
         edge={editingEdge}
