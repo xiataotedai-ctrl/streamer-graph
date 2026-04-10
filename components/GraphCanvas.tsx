@@ -15,9 +15,11 @@ interface GraphCanvasProps {
   connectMode?: boolean;
   connectSource?: string | null;
   sizeMode?: 'manual' | 'auto';
+  showAnnotations?: boolean;
+  annotationFields?: string[];
 }
 
-export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick, highlightedNodes, connectMode, connectSource, sizeMode }: GraphCanvasProps) {
+export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick, highlightedNodes, connectMode, connectSource, sizeMode, showAnnotations, annotationFields }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const dataRef = useRef<GraphData>(data);
@@ -81,7 +83,7 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
     const graph = createGraph(el, skipLayout);
     graphRef.current = graph;
 
-    const g6Data = toG6Data(dataRef.current, sizeMode, positionsRef.current);
+    const g6Data = toG6Data(dataRef.current, sizeMode, positionsRef.current, showAnnotations, annotationFields);
     graph.setData(g6Data);
     bindEvents(graph);
 
@@ -147,12 +149,12 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
     const graph = graphRef.current;
     if (!graph) return;
     setGraphReady(false);
-    const g6Data = toG6Data(data, sizeMode, positionsRef.current);
+    const g6Data = toG6Data(data, sizeMode, positionsRef.current, showAnnotations, annotationFields);
     graph.setData(g6Data);
     graph.render().then(() => {
       setGraphReady(true);
     }).catch(() => {});
-  }, [data, sizeMode]);
+  }, [data, sizeMode, showAnnotations, annotationFields]);
 
   // Handle connect mode visual
   useEffect(() => {

@@ -54,6 +54,8 @@ export default function Home() {
   const [showGroupForm, setShowGroupForm] = useState(false);
   const [editingGroup, setEditingGroup] = useState<StreamerGroup | null>(null);
   const [sizeMode, setSizeMode] = useState<'manual' | 'auto'>('manual');
+  const [showAnnotations, setShowAnnotations] = useState(false);
+  const [annotationFields, setAnnotationFields] = useState<string[]>(['categories']);
 
   // Connect mode
   const [connectMode, setConnectMode] = useState(false);
@@ -428,6 +430,8 @@ export default function Home() {
           connectMode={connectMode}
           connectSource={connectSource}
           sizeMode={sizeMode}
+          showAnnotations={showAnnotations}
+          annotationFields={annotationFields}
         />
 
         {/* Top Toolbar */}
@@ -454,6 +458,32 @@ export default function Home() {
                 className={`text-xs px-3 py-1.5 rounded ${sizeMode === 'auto' ? 'bg-blue-600 text-white' : 'text-gray-300 bg-[#16213e] hover:text-white'}`}>
                 节点大小: {sizeMode === 'auto' ? '按关系数量' : '按身份等级'}
               </button>
+              <div className="relative">
+                <button onClick={() => setShowAnnotations(!showAnnotations)}
+                  className={`text-xs px-3 py-1.5 rounded ${showAnnotations ? 'bg-green-600 text-white' : 'text-gray-300 bg-[#16213e] hover:text-white'}`}>
+                  {showAnnotations ? '标注 ✓' : '标注'}
+                </button>
+                {showAnnotations && (
+                  <div className="absolute top-9 left-0 bg-[#1a1a2e] border border-gray-700 rounded-lg p-2 z-30 w-32">
+                    {[
+                      { key: 'categories', label: '品类' },
+                      { key: 'regions', label: '地域' },
+                      { key: 'talents', label: '才艺' },
+                      { key: 'sections', label: '板块' },
+                      { key: 'notes', label: '备注' },
+                    ].map(({ key, label }) => (
+                      <label key={key} className="flex items-center gap-2 text-xs text-gray-400 hover:text-white py-1 cursor-pointer">
+                        <input type="checkbox" checked={annotationFields.includes(key)}
+                          onChange={() => setAnnotationFields(prev =>
+                            prev.includes(key) ? prev.filter(f => f !== key) : [...prev, key]
+                          )}
+                          className="accent-green-500" />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="flex gap-1 ml-1">
                 <button onClick={() => {
                   const saveLayout = (window as any).__g6SaveLayout;
