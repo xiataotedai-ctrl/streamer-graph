@@ -13,10 +13,10 @@ function computeNodeDegrees(data: GraphData): Record<string, number> {
   return degrees;
 }
 
-// Map degree to size range [24, 60]
+// Map degree to size range [28, 60]
 function degreeToSize(degree: number, maxDegree: number): number {
   if (maxDegree === 0) return 30;
-  const minSize = 24;
+  const minSize = 28;
   const maxSize = 60;
   return minSize + (degree / maxDegree) * (maxSize - minSize);
 }
@@ -35,7 +35,15 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
     } else {
       size = node.customSize || IDENTITY_SIZE[node.identityLevel] || 30;
     }
+    // Minimum size 28 so text fits inside
+    if (size < 28) size = 28;
+
     const comboId = node.groupIds?.[0] || node.groupId || undefined;
+
+    // Truncate long names for display inside circle
+    const displayName = node.name.length > 4 ? node.name.slice(0, 4) + '..' : node.name;
+    // Font size scales with node size
+    const fontSize = size >= 48 ? 13 : size >= 38 ? 11 : 10;
 
     return {
       id: node.id,
@@ -45,16 +53,14 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
         fill: color,
         stroke: color,
         lineWidth: 2,
-        fillOpacity: 0.85,
-        labelText: node.name,
-        labelFill: '#e0e0e0',
-        labelFontSize: 11,
-        labelPlacement: 'bottom' as const,
-        labelOffsetY: size / 2 + 6,
-        haloR: size / 2 + 4,
-        haloStroke: color,
-        haloLineWidth: 1,
-        haloStrokeOpacity: 0.3,
+        fillOpacity: 0.9,
+        // Label inside node, centered
+        labelText: displayName,
+        labelFill: '#ffffff',
+        labelFontSize: fontSize,
+        labelFontWeight: 'bold' as const,
+        labelPlacement: 'center' as const,
+        labelOffsetY: 0,
       },
       data: { _originalData: node },
     };
@@ -90,6 +96,7 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
     return {
       id: group.id,
       style: {
+        // No fixed radius — let G6 auto-size based on children
         fill: GROUP_COLORS[colorIndex],
         stroke: GROUP_BORDER_COLORS[colorIndex],
         lineWidth: 2,
@@ -121,13 +128,11 @@ export function createGraph(container: HTMLElement) {
           fillOpacity: 1,
           strokeOpacity: 1,
           lineWidth: 3,
-          haloStrokeOpacity: 0.6,
         },
         dim: {
           fillOpacity: 0.12,
           strokeOpacity: 0.12,
           labelFillOpacity: 0.12,
-          haloStrokeOpacity: 0,
         },
         selected: {
           lineWidth: 3,
@@ -154,14 +159,15 @@ export function createGraph(container: HTMLElement) {
       type: 'circle',
     },
     layout: {
-      type: 'force',
-      preventOverlap: true,
-      nodeSize: 60,
-      linkDistance: (d: any) => {
-        // Longer distance for edges without combos
-        return 150;
+      type: 'combo-combined',
+      comboPadding: 30,
+      innerLayout: {
+        type: 'force',
+        preventOverlap: true,
+        nodeSize: 60,
+        linkDistance: 120,
+        nodeStrength: -200,
       },
-      nodeStrength: -300,
     },
     behaviors: [
       'drag-canvas',

@@ -292,10 +292,15 @@ export default function Home() {
           </div>
         )}
 
-        {/* Stats */}
-        <div className="absolute bottom-4 left-4 bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-3 py-1.5 text-xs text-gray-500">
-          {graphData.nodes.length} 位主播 · {graphData.edges.length} 条关系 · {graphData.groups.length} 个圈层
-          {highlightedNodes.size > 0 && ` · 筛选出 ${highlightedNodes.size} 人`}
+        {/* Stats + hints */}
+        <div className="absolute bottom-4 left-4 bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-3 py-1.5 text-xs text-gray-500 space-y-0.5">
+          <div>
+            {graphData.nodes.length} 位主播 · {graphData.edges.length} 条关系 · {graphData.groups.length} 个圈层
+            {highlightedNodes.size > 0 && ` · 筛选出 ${highlightedNodes.size} 人`}
+          </div>
+          <div className="text-[10px] text-gray-600">
+            拖拽节点到另一个节点可建立关系 · Shift+框选可批量选中
+          </div>
         </div>
 
         {/* Toast */}
