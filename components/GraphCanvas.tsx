@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { GraphData } from '@/lib/types';
 import { createGraph, toG6Data } from '@/lib/graph-setup';
 
@@ -19,6 +19,7 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
   const graphRef = useRef<any>(null);
   const dataRef = useRef<GraphData>(data);
   const highlightedRef = useRef<Set<string> | undefined>(highlightedNodes);
+  const [graphReady, setGraphReady] = useState(false);
 
   // Keep refs in sync
   dataRef.current = data;
@@ -33,7 +34,13 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
 
     const g6Data = toG6Data(dataRef.current, sizeMode);
     graph.setData(g6Data);
-    graph.render();
+
+    // render() is async - wait for it to complete before allowing state operations
+    graph.render().then(() => {
+      setGraphReady(true);
+    }).catch((err: any) => {
+      console.warn('Graph render failed:', err);
+    });
 
     // Bind events
     if (onNodeClick) {
@@ -62,7 +69,6 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
           const source = typeof edgeData.source === 'string' ? edgeData.source : edgeData.source?.id;
           const target = typeof edgeData.target === 'string' ? edgeData.target : edgeData.target?.id;
           if (source && target) {
-            // Get the drop position for the type selector popup
             const clientPos = evt?.client || evt?.canvas;
             onEdgeCreate(source, target, { x: clientPos?.x || 0, y: clientPos?.y || 0 });
           }
@@ -71,6 +77,7 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
     }
 
     return () => {
+      setGraphReady(false);
       graph.destroy();
       graphRef.current = null;
     };
@@ -81,38 +88,46 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph) return;
+    setGraphReady(false);
     const g6Data = toG6Data(data, sizeMode);
     graph.setData(g6Data);
-    graph.render();
-  }, [data]);
+    graph.render().then(() => {
+      setGraphReady(true);
+    }).catch(() => {});
+  }, [data, sizeMode]);
 
-  // Handle highlight/dim
+  // Handle highlight/dim - only after graph is ready
   useEffect(() => {
     const graph = graphRef.current;
-    if (!graph || !highlightedNodes) return;
+    if (!graph || !highlightedNodes || !graphReady) return;
 
-    const allNodeIds = data.nodes.map(n => n.id);
-    const allEdgeIds = data.edges.map(e => e.id);
+    try {
+      const allNodeIds = data.nodes.map(n => n.id);
+      const allEdgeIds = data.edges.map(e => e.id);
 
-    if (highlightedNodes.size === 0) {
-      // Clear all states
-      const stateMap: Record<string, string[]> = {};
-      allNodeIds.forEach(id => { stateMap[id] = []; });
-      allEdgeIds.forEach(id => { stateMap[id] = []; });
-      graph.setElementState(stateMap);
-    } else {
-      const stateMap: Record<string, string[]> = {};
-      allNodeIds.forEach(id => {
-        stateMap[id] = highlightedNodes.has(id) ? ['highlight'] : ['dim'];
-      });
-      allEdgeIds.forEach(id => {
-        const edge = data.edges.find(e => e.id === id);
-        const bothHighlighted = edge && highlightedNodes.has(edge.source) && highlightedNodes.has(edge.target);
-        stateMap[id] = bothHighlighted ? ['highlight'] : ['dim'];
-      });
-      graph.setElementState(stateMap);
+      if (highlightedNodes.size === 0) {
+        // Clear all states
+        const stateMap: Record<string, string[]> = {};
+        allNodeIds.forEach(id => { stateMap[id] = []; });
+        allEdgeIds.forEach(id => { stateMap[id] = []; });
+        graph.setElementState(stateMap);
+      } else {
+        const stateMap: Record<string, string[]> = {};
+        allNodeIds.forEach(id => {
+          stateMap[id] = highlightedNodes.has(id) ? ['highlight'] : ['dim'];
+        });
+        allEdgeIds.forEach(id => {
+          const edge = data.edges.find(e => e.id === id);
+          const bothHighlighted = edge && highlightedNodes.has(edge.source) && highlightedNodes.has(edge.target);
+          stateMap[id] = bothHighlighted ? ['highlight'] : ['dim'];
+        });
+        graph.setElementState(stateMap);
+      }
+    } catch (err) {
+      // Silently ignore state errors during transitions
+      console.warn('setState failed:', err);
     }
-  }, [highlightedNodes, data]);
+  }, [highlightedNodes, data, graphReady]);
 
   return (
     <div

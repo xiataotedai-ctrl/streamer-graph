@@ -253,7 +253,7 @@ export default function Home() {
               </button>
               <button onClick={() => setSizeMode(m => m === 'manual' ? 'auto' : 'manual')}
                 className={`text-xs px-3 py-1.5 rounded ${sizeMode === 'auto' ? 'bg-blue-600 text-white' : 'text-gray-300 bg-[#16213e] hover:text-white'}`}>
-                {sizeMode === 'auto' ? '按连接数' : '按等级'}
+                节点大小: {sizeMode === 'auto' ? '按关系数量' : '按身份等级'}
               </button>
             </div>
             <div className="pointer-events-auto bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-3 py-2 flex gap-2 flex-wrap">
