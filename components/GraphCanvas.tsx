@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { GraphData } from '@/lib/types';
 import { createGraph, toG6Data } from '@/lib/graph-setup';
+import { saveGraphPositions, loadGraphPositions } from '@/lib/storage';
 
 interface GraphCanvasProps {
   data: GraphData;
   onNodeClick?: (nodeId: string | null) => void;
+  onNodeDblClick?: (nodeId: string | null) => void;
   onEdgeClick?: (edgeId: string | null) => void;
   onCanvasClick?: () => void;
   highlightedNodes?: Set<string>;
@@ -15,71 +17,142 @@ interface GraphCanvasProps {
   sizeMode?: 'manual' | 'auto';
 }
 
-export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasClick, highlightedNodes, connectMode, connectSource, sizeMode }: GraphCanvasProps) {
+export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick, highlightedNodes, connectMode, connectSource, sizeMode }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const dataRef = useRef<GraphData>(data);
+  const callbacksRef = useRef({ onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick });
+  const positionsRef = useRef<Record<string, { x: number; y: number }>>({});
   const [graphReady, setGraphReady] = useState(false);
 
-  // Keep ref in sync
   dataRef.current = data;
+  callbacksRef.current = { onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick };
 
-  // Initialize graph once
-  useEffect(() => {
-    if (!containerRef.current) return;
+  // Try every method to read a node's position from G6
+  const readPosition = (graph: any, id: string): { x: number; y: number } | null => {
+    try { const p = graph.getElementPosition(id); if (p?.x !== undefined) return { x: p.x, y: p.y }; } catch {}
+    try { const el = graph.getElement(id); if (el) { const p = el.getPosition?.(); if (p?.x !== undefined) return { x: p.x, y: p.y }; } } catch {}
+    try { const nd = graph.getNodeData([id]); if (nd?.[0]) { const x = nd[0].style?.x ?? nd[0].x; const y = nd[0].style?.y ?? nd[0].y; if (x !== undefined) return { x, y }; } } catch {}
+    return null;
+  };
 
-    const graph = createGraph(containerRef.current);
+  // Read all node positions, save to ref + localStorage, return count
+  const savePositions = (graph: any): number => {
+    const positions = { ...positionsRef.current };
+    let count = 0;
+    for (const node of dataRef.current.nodes) {
+      const pos = readPosition(graph, node.id);
+      if (pos) { positions[node.id] = pos; count++; }
+    }
+    if (count > 0) {
+      positionsRef.current = positions;
+      saveGraphPositions(positions);
+    }
+    return count;
+  };
+
+  // Bind all interactive events on a graph instance
+  const bindEvents = (graph: any) => {
+    graph.on('node:click', (evt: any) => {
+      const id = evt?.target?.id;
+      if (id && callbacksRef.current.onNodeClick) callbacksRef.current.onNodeClick(id);
+    });
+    graph.on('node:dblclick', (evt: any) => {
+      const id = evt?.target?.id;
+      if (id && callbacksRef.current.onNodeDblClick) callbacksRef.current.onNodeDblClick(id);
+    });
+    graph.on('edge:click', (evt: any) => {
+      const id = evt?.target?.id;
+      if (id && callbacksRef.current.onEdgeClick) callbacksRef.current.onEdgeClick(id);
+    });
+    graph.on('canvas:click', () => {
+      if (callbacksRef.current.onCanvasClick) callbacksRef.current.onCanvasClick();
+    });
+  };
+
+  // Build or rebuild the graph. Called on mount and after layout save.
+  const buildGraph = (el: HTMLElement, skipLayout: boolean) => {
+    // Destroy previous graph if any
+    if (graphRef.current) {
+      setGraphReady(false);
+      graphRef.current.destroy();
+    }
+
+    const graph = createGraph(el, skipLayout);
     graphRef.current = graph;
 
-    const g6Data = toG6Data(dataRef.current, sizeMode);
+    const g6Data = toG6Data(dataRef.current, sizeMode, positionsRef.current);
     graph.setData(g6Data);
+    bindEvents(graph);
 
     graph.render().then(() => {
       setGraphReady(true);
     }).catch(() => {});
+  };
 
-    // Bind events — try multiple property paths for G6 v5 compatibility
-    graph.on('node:click', (evt: any) => {
-      // G6 v5 event: try itemId first, then target.id, then target.id
-      const nodeId = evt?.itemId || evt?.target?.id || evt?.item?.id || evt?.id || null;
-      if (onNodeClick && nodeId) onNodeClick(nodeId);
-    });
+  // Save layout function — exposed via window bridge
+  const handleSaveLayout = (): number => {
+    const graph = graphRef.current;
+    if (!graph) return 0;
 
-    graph.on('edge:click', (evt: any) => {
-      const edgeId = evt?.itemId || evt?.target?.id || evt?.item?.id || evt?.id || null;
-      if (onEdgeClick && edgeId) onEdgeClick(edgeId);
-    });
+    const count = savePositions(graph);
+    if (count === 0) return 0;
 
-    graph.on('canvas:click', () => {
-      if (onCanvasClick) onCanvasClick();
-    });
+    // Rebuild graph WITHOUT layout so positions are locked in
+    if (containerRef.current) {
+      buildGraph(containerRef.current, true);
+    }
+    return count;
+  };
 
+  // Register bridge
+  useEffect(() => {
+    (window as any).__g6SaveLayout = handleSaveLayout;
+    return () => { (window as any).__g6SaveLayout = undefined; };
+  });
+
+  // Create graph ONLY after data is loaded from localStorage (nodes > 0)
+  useEffect(() => {
+    if (!containerRef.current) return;
+    if (graphRef.current) return; // Already created
+    if (data.nodes.length === 0) return; // Wait for data
+
+    const saved = loadGraphPositions();
+    positionsRef.current = saved;
+
+    // Skip force layout if we have saved positions for ALL nodes
+    const allHavePositions = data.nodes.every(n => saved[n.id]);
+
+    buildGraph(containerRef.current, allHavePositions);
+  }, [data]);
+
+  // Cleanup on unmount only
+  useEffect(() => {
     return () => {
-      setGraphReady(false);
-      graph.destroy();
-      graphRef.current = null;
+      if (graphRef.current) {
+        graphRef.current.destroy();
+        graphRef.current = null;
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Update data when it changes
+  // Update data when it changes (after graph is created)
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph) return;
     setGraphReady(false);
-    const g6Data = toG6Data(data, sizeMode);
+    const g6Data = toG6Data(data, sizeMode, positionsRef.current);
     graph.setData(g6Data);
     graph.render().then(() => {
       setGraphReady(true);
     }).catch(() => {});
   }, [data, sizeMode]);
 
-  // Handle connect mode visual — highlight source node
+  // Handle connect mode visual
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph || !graphReady) return;
     if (!connectMode || !connectSource) {
-      // Clear selected state from all nodes
       try {
         const stateMap: Record<string, string[]> = {};
         data.nodes.forEach(n => { stateMap[n.id] = []; });
@@ -87,7 +160,6 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
       } catch {}
       return;
     }
-    // Highlight the connect source
     try {
       const stateMap: Record<string, string[]> = {};
       data.nodes.forEach(n => {
@@ -132,7 +204,7 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
     <div
       ref={containerRef}
       className="w-full h-full"
-      style={{ background: '#0f0f1a' }}
+      style={{ background: '#0f0f1a', minHeight: '100%' }}
     />
   );
 }

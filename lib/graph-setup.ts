@@ -22,7 +22,7 @@ function degreeToSize(degree: number, maxDegree: number): number {
 }
 
 // Convert app data to G6 v5 data format
-export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual') {
+export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual', positions?: Record<string, { x: number; y: number }>) {
   const degrees = computeNodeDegrees(data);
   const maxDegree = Math.max(1, ...Object.values(degrees));
 
@@ -65,6 +65,8 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
         labelFontWeight: 'bold' as const,
         labelPlacement: 'center' as const,
         labelOffsetY: 0,
+        // Preserve position from previous layout
+        ...(positions?.[node.id] ? { x: positions[node.id].x, y: positions[node.id].y } : {}),
       },
       data: { _originalData: node },
     };
@@ -88,6 +90,7 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
         labelFill: config.color,
         labelFontSize: 9,
         labelFillOpacity: 0.85,
+        labelOffsetY: -10,
         labelBackgroundFill: '#0f0f1a',
         labelBackgroundRadius: 2,
         labelBackgroundPadding: [2, 4],
@@ -119,7 +122,7 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
 }
 
 // Create configured G6 v5 graph instance
-export function createGraph(container: HTMLElement) {
+export function createGraph(container: HTMLElement, skipLayout = false) {
   const graph = new Graph({
     container,
     autoFit: 'view',
@@ -166,13 +169,16 @@ export function createGraph(container: HTMLElement) {
     combo: {
       type: 'circle',
     },
-    layout: {
-      type: 'force',
-      preventOverlap: true,
-      nodeSize: 60,
-      linkDistance: 150,
-      nodeStrength: -300,
-    },
+    // Only run force layout when no saved positions exist
+    ...(skipLayout ? {} : {
+      layout: {
+        type: 'force',
+        preventOverlap: true,
+        nodeSize: 60,
+        linkDistance: 150,
+        nodeStrength: -300,
+      },
+    }),
     behaviors: [
       'drag-canvas',
       'zoom-canvas',

@@ -1,5 +1,23 @@
 const STORAGE_KEY = 'streamer-graph-data';
 const AUTOSAVE_KEY = 'streamer-graph-autosave';
+const POSITIONS_KEY = 'streamer-graph-positions';
+
+// --- Layout positions ---
+
+export function saveGraphPositions(positions: Record<string, { x: number; y: number }>): void {
+  try {
+    localStorage.setItem(POSITIONS_KEY, JSON.stringify(positions));
+  } catch {}
+}
+
+export function loadGraphPositions(): Record<string, { x: number; y: number }> {
+  try {
+    const raw = localStorage.getItem(POSITIONS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
 
 export function saveToStorage(data: string): void {
   try {

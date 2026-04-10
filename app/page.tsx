@@ -66,8 +66,13 @@ export default function Home() {
   const [editingEdge, setEditingEdge] = useState<RelationshipEdge | null>(null);
   const [showEdgeEdit, setShowEdgeEdit] = useState(false);
 
-  // Undo history
+  // Node search in sidebar
+  const [nodeSearch, setNodeSearch] = useState('');
+  const [layoutSaved, setLayoutSaved] = useState(false);
+
+  // Undo/Redo history
   const [history, setHistory] = useState<GraphData[]>([]);
+  const [futureHistory, setFutureHistory] = useState<GraphData[]>([]);
 
   const [showSubgraph, setShowSubgraph] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -86,24 +91,45 @@ export default function Home() {
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   }, []);
 
-  // Undo: Ctrl+Z
+  const handleUndo = useCallback(() => {
+    setHistory(prev => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      setFutureHistory(f => [...f, graphData]);
+      setGraphData(last);
+      autoSave(JSON.stringify(last));
+      showToast('已撤销');
+      return prev.slice(0, -1);
+    });
+  }, [graphData, showToast]);
+
+  const handleRedo = useCallback(() => {
+    setFutureHistory(prev => {
+      if (prev.length === 0) return prev;
+      const next = prev[prev.length - 1];
+      setHistory(h => [...h, graphData]);
+      setGraphData(next);
+      autoSave(JSON.stringify(next));
+      showToast('已重做');
+      return prev.slice(0, -1);
+    });
+  }, [graphData, showToast]);
+
+  // Undo: Ctrl+Z, Redo: Ctrl+Shift+Z
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
         e.preventDefault();
-        setHistory(prev => {
-          if (prev.length === 0) return prev;
-          const last = prev[prev.length - 1];
-          setGraphData(last);
-          autoSave(JSON.stringify(last));
-          showToast('已撤销');
-          return prev.slice(0, -1);
-        });
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [showToast]);
+  }, [handleUndo, handleRedo]);
 
   // Compute highlighted nodes from filter
   const highlightedNodes = useMemo(() => {
@@ -133,6 +159,7 @@ export default function Home() {
     setGraphData(prev => {
       // Push previous state to history (limit 30)
       setHistory(h => [...h.slice(-29), prev]);
+      setFutureHistory([]); // Clear redo stack on new change
       autoSave(JSON.stringify(newData));
       return newData;
     });
@@ -150,6 +177,7 @@ export default function Home() {
   const handleNodeClick = useCallback((nodeId: string | null) => {
     if (!nodeId) return;
 
+    // Single click only used for connect mode
     if (connectMode) {
       if (!connectSource) {
         setConnectSource(nodeId);
@@ -159,18 +187,17 @@ export default function Home() {
         setEdgeSelectorPos({ x: window.innerWidth / 2 - 70, y: window.innerHeight / 2 - 100 });
         setEdgeSelectorOpen(true);
       }
-      return;
     }
+  }, [connectMode, connectSource, showToast]);
 
-    // Normal mode: edit node
-    if (!isReadOnly) {
-      const node = graphData.nodes.find(n => n.id === nodeId);
-      if (node) {
-        setEditingNode(node);
-        setShowNodeForm(true);
-      }
+  const handleNodeDblClick = useCallback((nodeId: string | null) => {
+    if (!nodeId || isReadOnly) return;
+    const node = graphData.nodes.find(n => n.id === nodeId);
+    if (node) {
+      setEditingNode(node);
+      setShowNodeForm(true);
     }
-  }, [connectMode, connectSource, graphData, isReadOnly, showToast]);
+  }, [graphData, isReadOnly]);
 
   const handleDeleteNode = useCallback((nodeId: string) => {
     updateData(removeNode(graphData, nodeId));
@@ -301,6 +328,38 @@ export default function Home() {
       <aside className={`${sidebarOpen ? 'w-64' : 'w-0'} transition-all duration-200 bg-[#1a1a2e] border-r border-gray-800 overflow-y-auto flex-shrink-0 ${!sidebarOpen ? 'hidden md:block md:w-64' : ''}`}>
         <TagFilterSidebar data={graphData} filter={filter} onFilterChange={setFilter} />
 
+        {/* Node list with search + edit buttons */}
+        {graphData.nodes.length > 0 && (
+          <div className="px-4 pb-4 border-t border-gray-800 pt-3">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs text-gray-500">主播管理 ({graphData.nodes.length})</h3>
+            </div>
+            {graphData.nodes.length > 8 && (
+              <input
+                value={nodeSearch}
+                onChange={e => setNodeSearch(e.target.value)}
+                placeholder="搜索主播..."
+                className="w-full bg-[#0f0f1a] border border-gray-700 rounded px-2 py-1 text-xs mb-2 focus:outline-none focus:border-blue-500"
+              />
+            )}
+            <div className="space-y-1 max-h-52 overflow-y-auto">
+              {graphData.nodes
+                .filter(n => !nodeSearch || n.name.includes(nodeSearch))
+                .map(node => (
+                <div key={node.id} className="flex items-center justify-between text-xs rounded px-2 py-1.5 hover:bg-white/5">
+                  <span className="text-gray-400 truncate mr-2">{node.name}</span>
+                  {!isReadOnly && (
+                    <button onClick={() => { setEditingNode(node); setShowNodeForm(true); }}
+                      className="text-blue-400 hover:text-blue-300 text-[10px] flex-shrink-0">
+                      编辑
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Group list with edit buttons */}
         {graphData.groups.length > 0 && (
           <div className="px-4 pb-4 border-t border-gray-800 pt-3">
@@ -323,10 +382,11 @@ export default function Home() {
       </aside>
 
       {/* Main Canvas */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative overflow-hidden">
         <GraphCanvas
           data={graphData}
           onNodeClick={handleNodeClick}
+          onNodeDblClick={handleNodeDblClick}
           onEdgeClick={handleEdgeClick}
           onCanvasClick={handleCanvasClick}
           highlightedNodes={highlightedNodes}
@@ -359,6 +419,41 @@ export default function Home() {
                 className={`text-xs px-3 py-1.5 rounded ${sizeMode === 'auto' ? 'bg-blue-600 text-white' : 'text-gray-300 bg-[#16213e] hover:text-white'}`}>
                 节点大小: {sizeMode === 'auto' ? '按关系数量' : '按身份等级'}
               </button>
+              <div className="flex gap-1 ml-1">
+                <button onClick={() => {
+                  const saveLayout = (window as any).__g6SaveLayout;
+                  if (saveLayout) {
+                    const count = saveLayout();
+                    if (count > 0) {
+                      setLayoutSaved(true);
+                      showToast(`布局已保存 (${count} 个节点)，刷新后位置将恢复`);
+                      setTimeout(() => setLayoutSaved(false), 3000);
+                    } else {
+                      showToast('保存失败：无法读取节点位置');
+                    }
+                  } else {
+                    showToast('图表未就绪');
+                  }
+                }}
+                  className={`text-xs px-3 py-1.5 rounded font-medium transition-colors ${
+                    layoutSaved
+                      ? 'bg-green-600 text-white'
+                      : 'bg-amber-700 text-white hover:bg-amber-600'
+                  }`}
+                  title="拖动节点后点击保存，布局将在刷新后恢复">
+                  {layoutSaved ? '✅ 已保存' : '📌 保存布局'}
+                </button>
+                <button onClick={handleUndo} disabled={history.length === 0}
+                  className="text-xs px-2 py-1.5 bg-[#16213e] rounded text-gray-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="撤销 (Ctrl+Z)">
+                  ↩ 撤销
+                </button>
+                <button onClick={handleRedo} disabled={futureHistory.length === 0}
+                  className="text-xs px-2 py-1.5 bg-[#16213e] rounded text-gray-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="重做 (Ctrl+Shift+Z)">
+                  ↪ 重做
+                </button>
+              </div>
             </div>
             <div className="pointer-events-auto bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-3 py-2 flex gap-2 flex-wrap">
               <button onClick={handleExport}
@@ -400,7 +495,7 @@ export default function Home() {
             {highlightedNodes.size > 0 && ` · 筛选出 ${highlightedNodes.size} 人`}
           </div>
           <div className="text-[10px] text-gray-600">
-            点击节点编辑 · 点击关系线编辑关系 · Ctrl+Z 撤销
+            双击节点编辑 · 点击关系线编辑关系 · Ctrl+Z 撤销
           </div>
         </div>
 
