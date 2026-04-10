@@ -41,6 +41,14 @@ export function addEdge(graph: GraphData, edge: RelationshipEdge): GraphData {
   return { ...graph, edges: [...graph.edges, edge], metadata: { ...graph.metadata, updatedAt: new Date().toISOString() } };
 }
 
+export function updateEdge(graph: GraphData, edgeId: string, updates: Partial<RelationshipEdge>): GraphData {
+  return {
+    ...graph,
+    edges: graph.edges.map(e => e.id === edgeId ? { ...e, ...updates } : e),
+    metadata: { ...graph.metadata, updatedAt: new Date().toISOString() },
+  };
+}
+
 export function removeEdge(graph: GraphData, edgeId: string): GraphData {
   return { ...graph, edges: graph.edges.filter(e => e.id !== edgeId), metadata: { ...graph.metadata, updatedAt: new Date().toISOString() } };
 }

@@ -19,6 +19,9 @@ export function loadFromStorage(): string | null {
 
 export function autoSave(data: string): void {
   try {
+    // Save to main key (same as loadFromStorage reads)
+    localStorage.setItem(STORAGE_KEY, data);
+    // Also save timestamped backup
     localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
       data,
       timestamp: Date.now(),

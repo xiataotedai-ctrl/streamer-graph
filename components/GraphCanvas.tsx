@@ -10,20 +10,19 @@ interface GraphCanvasProps {
   onEdgeClick?: (edgeId: string | null) => void;
   onCanvasClick?: () => void;
   highlightedNodes?: Set<string>;
-  onEdgeCreate?: (source: string, target: string, position: { x: number; y: number }) => void;
+  connectMode?: boolean;
+  connectSource?: string | null;
   sizeMode?: 'manual' | 'auto';
 }
 
-export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasClick, highlightedNodes, onEdgeCreate, sizeMode }: GraphCanvasProps) {
+export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasClick, highlightedNodes, connectMode, connectSource, sizeMode }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const dataRef = useRef<GraphData>(data);
-  const highlightedRef = useRef<Set<string> | undefined>(highlightedNodes);
   const [graphReady, setGraphReady] = useState(false);
 
-  // Keep refs in sync
+  // Keep ref in sync
   dataRef.current = data;
-  highlightedRef.current = highlightedNodes;
 
   // Initialize graph once
   useEffect(() => {
@@ -35,46 +34,24 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
     const g6Data = toG6Data(dataRef.current, sizeMode);
     graph.setData(g6Data);
 
-    // render() is async - wait for it to complete before allowing state operations
     graph.render().then(() => {
       setGraphReady(true);
-    }).catch((err: any) => {
-      console.warn('Graph render failed:', err);
-    });
+    }).catch(() => {});
 
     // Bind events
-    if (onNodeClick) {
-      graph.on('node:click', (evt: any) => {
-        const nodeId = evt.target?.id || evt.itemId || null;
-        onNodeClick(nodeId);
-      });
-    }
-    if (onEdgeClick) {
-      graph.on('edge:click', (evt: any) => {
-        const edgeId = evt.target?.id || evt.itemId || null;
-        onEdgeClick(edgeId);
-      });
-    }
-    if (onCanvasClick) {
-      graph.on('canvas:click', () => {
-        onCanvasClick();
-      });
-    }
+    graph.on('node:click', (evt: any) => {
+      const nodeId = evt.target?.id || evt.itemId || null;
+      if (onNodeClick) onNodeClick(nodeId);
+    });
 
-    // Edge creation via create-edge behavior
-    if (onEdgeCreate) {
-      graph.on('aftercreateedge', (evt: any) => {
-        const edgeData = evt?.edge || evt?.data;
-        if (edgeData) {
-          const source = typeof edgeData.source === 'string' ? edgeData.source : edgeData.source?.id;
-          const target = typeof edgeData.target === 'string' ? edgeData.target : edgeData.target?.id;
-          if (source && target) {
-            const clientPos = evt?.client || evt?.canvas;
-            onEdgeCreate(source, target, { x: clientPos?.x || 0, y: clientPos?.y || 0 });
-          }
-        }
-      });
-    }
+    graph.on('edge:click', (evt: any) => {
+      const edgeId = evt.target?.id || evt.itemId || null;
+      if (onEdgeClick) onEdgeClick(edgeId);
+    });
+
+    graph.on('canvas:click', () => {
+      if (onCanvasClick) onCanvasClick();
+    });
 
     return () => {
       setGraphReady(false);
@@ -96,7 +73,30 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
     }).catch(() => {});
   }, [data, sizeMode]);
 
-  // Handle highlight/dim - only after graph is ready
+  // Handle connect mode visual — highlight source node
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph || !graphReady) return;
+    if (!connectMode || !connectSource) {
+      // Clear selected state from all nodes
+      try {
+        const stateMap: Record<string, string[]> = {};
+        data.nodes.forEach(n => { stateMap[n.id] = []; });
+        graph.setElementState(stateMap);
+      } catch {}
+      return;
+    }
+    // Highlight the connect source
+    try {
+      const stateMap: Record<string, string[]> = {};
+      data.nodes.forEach(n => {
+        stateMap[n.id] = n.id === connectSource ? ['selected'] : [];
+      });
+      graph.setElementState(stateMap);
+    } catch {}
+  }, [connectMode, connectSource, data.nodes, graphReady]);
+
+  // Handle highlight/dim from tag filter
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph || !highlightedNodes || !graphReady) return;
@@ -106,7 +106,6 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
       const allEdgeIds = data.edges.map(e => e.id);
 
       if (highlightedNodes.size === 0) {
-        // Clear all states
         const stateMap: Record<string, string[]> = {};
         allNodeIds.forEach(id => { stateMap[id] = []; });
         allEdgeIds.forEach(id => { stateMap[id] = []; });
@@ -124,7 +123,6 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
         graph.setElementState(stateMap);
       }
     } catch (err) {
-      // Silently ignore state errors during transitions
       console.warn('setState failed:', err);
     }
   }, [highlightedNodes, data, graphReady]);

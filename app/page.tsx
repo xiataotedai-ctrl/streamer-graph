@@ -4,11 +4,12 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 import GraphCanvas from '@/components/GraphCanvas';
 import NodeForm from '@/components/NodeForm';
 import EdgeTypeSelector from '@/components/EdgeTypeSelector';
+import EdgeEditForm from '@/components/EdgeEditForm';
 import GroupForm from '@/components/GroupForm';
 import TagFilterSidebar from '@/components/TagFilterSidebar';
 import SubgraphPanel from '@/components/SubgraphPanel';
-import { GraphData, StreamerNode, StreamerGroup, RelationshipType, FilterState } from '@/lib/types';
-import { createEmptyGraph, addNode, updateNode, removeNode, addEdge, addGroup, updateGroup, genId, extractSubgraph } from '@/lib/graph-data';
+import { GraphData, StreamerNode, StreamerGroup, RelationshipEdge, RelationshipType, FilterState } from '@/lib/types';
+import { createEmptyGraph, addNode, updateNode, removeNode, addEdge, updateEdge, removeEdge, addGroup, updateGroup, genId } from '@/lib/graph-data';
 import { autoSave, exportJSON, importJSON } from '@/lib/storage';
 import { encodeShareData } from '@/lib/share';
 
@@ -36,16 +37,24 @@ export default function Home() {
     return createEmptyGraph('圈层关系图', '');
   });
 
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterState>({ ...EMPTY_FILTER });
   const [showNodeForm, setShowNodeForm] = useState(false);
   const [editingNode, setEditingNode] = useState<StreamerNode | null>(null);
   const [showGroupForm, setShowGroupForm] = useState(false);
   const [editingGroup, setEditingGroup] = useState<StreamerGroup | null>(null);
+  const [sizeMode, setSizeMode] = useState<'manual' | 'auto'>('manual');
+
+  // Connect mode: click source → click target → select type → create edge
+  const [connectMode, setConnectMode] = useState(false);
+  const [connectSource, setConnectSource] = useState<string | null>(null);
   const [edgeSelectorOpen, setEdgeSelectorOpen] = useState(false);
   const [edgeSelectorPos, setEdgeSelectorPos] = useState({ x: 0, y: 0 });
-  const [pendingEdge, setPendingEdge] = useState<{ source: string; target: string } | null>(null);
-  const [sizeMode, setSizeMode] = useState<'manual' | 'auto'>('manual');
+  const [pendingTarget, setPendingTarget] = useState<string | null>(null);
+
+  // Edge editing
+  const [editingEdge, setEditingEdge] = useState<RelationshipEdge | null>(null);
+  const [showEdgeEdit, setShowEdgeEdit] = useState(false);
+
   const [showSubgraph, setShowSubgraph] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -87,62 +96,87 @@ export default function Home() {
     return matching;
   }, [filter, graphData.nodes]);
 
-  // Auto-save on every change
   const updateData = useCallback((newData: GraphData) => {
     setGraphData(newData);
     autoSave(JSON.stringify(newData));
   }, []);
 
+  // --- Node handlers ---
   const handleNodeSave = useCallback((node: StreamerNode) => {
     const existing = graphData.nodes.find(n => n.id === node.id);
-    let newData: GraphData;
-    if (existing) {
-      newData = updateNode(graphData, node.id, node);
-    } else {
-      newData = addNode(graphData, node);
-    }
+    const newData = existing
+      ? updateNode(graphData, node.id, node)
+      : addNode(graphData, node);
     updateData(newData);
   }, [graphData, updateData]);
 
   const handleNodeClick = useCallback((nodeId: string | null) => {
-    setSelectedNodeId(nodeId);
-    if (nodeId && !isReadOnly) {
+    if (!nodeId) return;
+
+    if (connectMode) {
+      if (!connectSource) {
+        // First click: set source
+        setConnectSource(nodeId);
+        showToast('已选择起点，请点击目标主播');
+      } else if (nodeId !== connectSource) {
+        // Second click: set target, show type selector
+        setPendingTarget(nodeId);
+        setEdgeSelectorPos({ x: window.innerWidth / 2 - 70, y: window.innerHeight / 2 - 100 });
+        setEdgeSelectorOpen(true);
+      }
+      return;
+    }
+
+    // Normal mode: edit node
+    if (!isReadOnly) {
       const node = graphData.nodes.find(n => n.id === nodeId);
       if (node) {
         setEditingNode(node);
         setShowNodeForm(true);
       }
     }
-  }, [graphData, isReadOnly]);
+  }, [connectMode, connectSource, graphData, isReadOnly, showToast]);
 
-  const handleDeleteNode = useCallback(() => {
-    if (selectedNodeId) {
-      updateData(removeNode(graphData, selectedNodeId));
-      setSelectedNodeId(null);
-      setEditingNode(null);
-      setShowNodeForm(false);
-    }
-  }, [selectedNodeId, graphData, updateData]);
+  const handleDeleteNode = useCallback((nodeId: string) => {
+    updateData(removeNode(graphData, nodeId));
+    setShowNodeForm(false);
+    setEditingNode(null);
+  }, [graphData, updateData]);
 
-  const handleEdgeCreate = useCallback((source: string, target: string, position: { x: number; y: number }) => {
-    setPendingEdge({ source, target });
-    setEdgeSelectorPos(position);
-    setEdgeSelectorOpen(true);
-  }, []);
-
+  // --- Edge handlers ---
   const handleEdgeTypeSelect = useCallback((type: RelationshipType) => {
-    if (!pendingEdge) return;
+    if (!connectSource || !pendingTarget) return;
     const edge = {
       id: genId(),
-      source: pendingEdge.source,
-      target: pendingEdge.target,
+      source: connectSource,
+      target: pendingTarget,
       type,
     };
     updateData(addEdge(graphData, edge));
     setEdgeSelectorOpen(false);
-    setPendingEdge(null);
-  }, [pendingEdge, graphData, updateData]);
+    setConnectSource(null);
+    setPendingTarget(null);
+    showToast('关系已建立');
+  }, [connectSource, pendingTarget, graphData, updateData, showToast]);
 
+  const handleEdgeClick = useCallback((edgeId: string | null) => {
+    if (!edgeId || isReadOnly || connectMode) return;
+    const edge = graphData.edges.find(e => e.id === edgeId);
+    if (edge) {
+      setEditingEdge(edge);
+      setShowEdgeEdit(true);
+    }
+  }, [graphData, isReadOnly, connectMode]);
+
+  const handleEdgeSave = useCallback((edge: RelationshipEdge) => {
+    updateData(updateEdge(graphData, edge.id, edge));
+  }, [graphData, updateData]);
+
+  const handleEdgeDelete = useCallback((edgeId: string) => {
+    updateData(removeEdge(graphData, edgeId));
+  }, [graphData, updateData]);
+
+  // --- Group handlers ---
   const handleGroupSave = useCallback((group: StreamerGroup) => {
     let newData: GraphData;
     const existing = graphData.groups.find(g => g.id === group.id);
@@ -167,6 +201,13 @@ export default function Home() {
     updateData(newData);
   }, [graphData, updateData]);
 
+  const handleCanvasClick = useCallback(() => {
+    if (connectMode) {
+      setConnectSource(null);
+    }
+  }, [connectMode]);
+
+  // --- Import/Export/Share ---
   const handleExport = useCallback(() => {
     const filename = `${graphData.metadata.name || 'streamer-graph'}-${new Date().toISOString().slice(0, 10)}.json`;
     exportJSON(graphData, filename);
@@ -198,7 +239,6 @@ export default function Home() {
     navigator.clipboard.writeText(url).then(() => {
       showToast('分享链接已复制到剪贴板');
     }).catch(() => {
-      // Fallback: show in prompt
       prompt('复制以下链接：', url);
     });
   }, [graphData, showToast]);
@@ -223,9 +263,29 @@ export default function Home() {
         </button>
       )}
 
-      {/* Left Sidebar - Tag Filters */}
+      {/* Left Sidebar */}
       <aside className={`${sidebarOpen ? 'w-64' : 'w-0'} transition-all duration-200 bg-[#1a1a2e] border-r border-gray-800 overflow-y-auto flex-shrink-0 ${!sidebarOpen ? 'hidden md:block md:w-64' : ''}`}>
         <TagFilterSidebar data={graphData} filter={filter} onFilterChange={setFilter} />
+
+        {/* Group list with edit buttons */}
+        {graphData.groups.length > 0 && (
+          <div className="px-4 pb-4 border-t border-gray-800 pt-3">
+            <h3 className="text-xs text-gray-500 mb-2">圈层管理</h3>
+            <div className="space-y-1">
+              {graphData.groups.map(group => (
+                <div key={group.id} className="flex items-center justify-between text-xs rounded px-2 py-1.5 hover:bg-white/5">
+                  <span className="text-gray-400">{group.name} ({group.memberIds.length})</span>
+                  {!isReadOnly && (
+                    <button onClick={() => { setEditingGroup(group); setShowGroupForm(true); }}
+                      className="text-blue-400 hover:text-blue-300 text-[10px]">
+                      编辑
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </aside>
 
       {/* Main Canvas */}
@@ -233,9 +293,11 @@ export default function Home() {
         <GraphCanvas
           data={graphData}
           onNodeClick={handleNodeClick}
-          onCanvasClick={() => { setSelectedNodeId(null); setEditingNode(null); }}
+          onEdgeClick={handleEdgeClick}
+          onCanvasClick={handleCanvasClick}
           highlightedNodes={highlightedNodes}
-          onEdgeCreate={handleEdgeCreate}
+          connectMode={connectMode}
+          connectSource={connectSource}
           sizeMode={sizeMode}
         />
 
@@ -251,24 +313,20 @@ export default function Home() {
                 className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
                 + 创建圈层
               </button>
+              <button onClick={() => {
+                setConnectMode(!connectMode);
+                setConnectSource(null);
+                if (!connectMode) showToast('连接模式：点击起点主播，再点击目标主播');
+              }}
+                className={`text-xs px-3 py-1.5 rounded ${connectMode ? 'bg-green-600 text-white' : 'text-gray-300 bg-[#16213e] hover:text-white'}`}>
+                {connectMode ? '连接中...' : '建立关系'}
+              </button>
               <button onClick={() => setSizeMode(m => m === 'manual' ? 'auto' : 'manual')}
                 className={`text-xs px-3 py-1.5 rounded ${sizeMode === 'auto' ? 'bg-blue-600 text-white' : 'text-gray-300 bg-[#16213e] hover:text-white'}`}>
                 节点大小: {sizeMode === 'auto' ? '按关系数量' : '按身份等级'}
               </button>
             </div>
             <div className="pointer-events-auto bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-3 py-2 flex gap-2 flex-wrap">
-              {selectedNodeId && (
-                <button onClick={handleDeleteNode}
-                  className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 bg-red-900/30 rounded">
-                  删除
-                </button>
-              )}
-              {selectedNodeIds.length > 1 && (
-                <button onClick={() => setShowSubgraph(true)}
-                  className="text-xs text-green-400 hover:text-green-300 px-3 py-1.5 bg-green-900/30 rounded">
-                  子图 ({selectedNodeIds.length})
-                </button>
-              )}
               <button onClick={handleExport}
                 className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
                 导出
@@ -282,6 +340,15 @@ export default function Home() {
                 分享链接
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Connect mode banner */}
+        {connectMode && (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-green-900/80 backdrop-blur rounded-lg px-4 py-2 text-xs text-green-300 z-20">
+            {connectSource
+              ? `已选起点，点击目标主播建立关系（点击空白取消）`
+              : `点击第一个主播作为起点`}
           </div>
         )}
 
@@ -299,13 +366,13 @@ export default function Home() {
             {highlightedNodes.size > 0 && ` · 筛选出 ${highlightedNodes.size} 人`}
           </div>
           <div className="text-[10px] text-gray-600">
-            拖拽节点到另一个节点可建立关系 · Shift+框选可批量选中
+            点击节点编辑 · 点击关系线编辑/删除 · "建立关系"按钮连接两个主播
           </div>
         </div>
 
         {/* Toast */}
         {toast && (
-          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 bg-[#16213e] border border-gray-700 rounded-lg px-4 py-2 text-xs text-gray-300 shadow-lg animate-pulse">
+          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 bg-[#16213e] border border-gray-700 rounded-lg px-4 py-2 text-xs text-gray-300 shadow-lg">
             {toast}
           </div>
         )}
@@ -325,6 +392,7 @@ export default function Home() {
         open={showNodeForm}
         onClose={() => { setShowNodeForm(false); setEditingNode(null); }}
         onSave={handleNodeSave}
+        onDelete={editingNode ? () => handleDeleteNode(editingNode.id) : undefined}
         initialData={editingNode}
       />
 
@@ -337,12 +405,23 @@ export default function Home() {
         initialData={editingGroup}
       />
 
-      {/* Edge Type Selector */}
+      {/* Edge Type Selector (for new edges) */}
       <EdgeTypeSelector
         open={edgeSelectorOpen}
         position={edgeSelectorPos}
         onSelect={handleEdgeTypeSelect}
-        onCancel={() => { setEdgeSelectorOpen(false); setPendingEdge(null); }}
+        onCancel={() => { setEdgeSelectorOpen(false); setConnectSource(null); setPendingTarget(null); }}
+      />
+
+      {/* Edge Edit Form (for existing edges) */}
+      <EdgeEditForm
+        open={showEdgeEdit}
+        edge={editingEdge}
+        sourceName={graphData.nodes.find(n => n.id === editingEdge?.source)?.name || ''}
+        targetName={graphData.nodes.find(n => n.id === editingEdge?.target)?.name || ''}
+        onSave={handleEdgeSave}
+        onDelete={handleEdgeDelete}
+        onClose={() => { setShowEdgeEdit(false); setEditingEdge(null); }}
       />
     </main>
   );

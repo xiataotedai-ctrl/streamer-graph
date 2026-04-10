@@ -13,11 +13,11 @@ function computeNodeDegrees(data: GraphData): Record<string, number> {
   return degrees;
 }
 
-// Map degree to size range [28, 60]
+// Map degree to size range [36, 70]
 function degreeToSize(degree: number, maxDegree: number): number {
-  if (maxDegree === 0) return 30;
-  const minSize = 28;
-  const maxSize = 60;
+  if (maxDegree === 0) return 40;
+  const minSize = 36;
+  const maxSize = 70;
   return minSize + (degree / maxDegree) * (maxSize - minSize);
 }
 
@@ -29,21 +29,26 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
   const nodes = data.nodes.map((node: StreamerNode) => {
     const mainCategory = node.tags.categories[0] || '';
     const color = CATEGORY_COLORS[mainCategory] || DEFAULT_CATEGORY_COLOR;
+
+    // Base size from identity level or auto mode
     let size: number;
     if (sizeMode === 'auto') {
       size = degreeToSize(degrees[node.id] || 0, maxDegree);
     } else {
-      size = node.customSize || IDENTITY_SIZE[node.identityLevel] || 30;
+      size = node.customSize || IDENTITY_SIZE[node.identityLevel] || 36;
     }
-    // Minimum size 28 so text fits inside
-    if (size < 28) size = 28;
+
+    // Expand node to fit name (each Chinese char ~12px at fontSize 11)
+    const nameLen = node.name.length;
+    const neededForName = nameLen * 12 + 16;
+    if (neededForName > size) size = neededForName;
+    // Cap at reasonable max
+    if (size > 90) size = 90;
 
     const comboId = node.groupIds?.[0] || node.groupId || undefined;
 
-    // Truncate long names for display inside circle
-    const displayName = node.name.length > 4 ? node.name.slice(0, 4) + '..' : node.name;
-    // Font size scales with node size
-    const fontSize = size >= 48 ? 13 : size >= 38 ? 11 : 10;
+    // Font size scales with node size and name length
+    const fontSize = size >= 56 ? 12 : size >= 40 ? 11 : 10;
 
     return {
       id: node.id,
@@ -54,8 +59,7 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
         stroke: color,
         lineWidth: 2,
         fillOpacity: 0.9,
-        // Label inside node, centered
-        labelText: displayName,
+        labelText: node.name,
         labelFill: '#ffffff',
         labelFontSize: fontSize,
         labelFontWeight: 'bold' as const,
@@ -69,6 +73,7 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
   const edges = data.edges.map((edge: RelationshipEdge) => {
     const config = RELATIONSHIP_CONFIG[edge.type] || RELATIONSHIP_CONFIG.custom;
     const arrow = edge.type === 'mentor' || edge.type === 'betrayed';
+    const displayLabel = edge.label || config.label;
 
     return {
       id: edge.id,
@@ -79,10 +84,10 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
         lineWidth: config.width || 1.5,
         lineDash: config.lineStyle === 'dashed' ? [6, 4] : config.lineStyle === 'dotted' ? [2, 2] : undefined,
         endArrow: arrow,
-        labelText: config.label,
+        labelText: displayLabel,
         labelFill: config.color,
         labelFontSize: 9,
-        labelFillOpacity: 0.8,
+        labelFillOpacity: 0.85,
         labelBackgroundFill: '#0f0f1a',
         labelBackgroundRadius: 2,
         labelBackgroundPadding: [2, 4],
@@ -96,7 +101,6 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
     return {
       id: group.id,
       style: {
-        // No fixed radius — let G6 auto-size based on children
         fill: GROUP_COLORS[colorIndex],
         stroke: GROUP_BORDER_COLORS[colorIndex],
         lineWidth: 2,
@@ -153,6 +157,10 @@ export function createGraph(container: HTMLElement) {
           strokeOpacity: 0.05,
           labelFillOpacity: 0.05,
         },
+        selected: {
+          lineWidth: 3,
+          strokeOpacity: 1,
+        },
       },
     },
     combo: {
@@ -175,7 +183,6 @@ export function createGraph(container: HTMLElement) {
       'drag-element',
       'hover-activate',
       { type: 'brush-select', trigger: 'shift' },
-      { type: 'create-edge', trigger: 'drag', key: 'create-edge' },
     ],
     plugins: [
       {

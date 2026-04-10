@@ -9,12 +9,13 @@ interface NodeFormProps {
   open: boolean;
   onClose: () => void;
   onSave: (node: StreamerNode) => void;
+  onDelete?: () => void;
   initialData?: StreamerNode | null;
 }
 
 const EMPTY_TAGS: StreamerTags = { regions: [], categories: [], talents: [], sections: [], custom: [] };
 
-export default function NodeForm({ open, onClose, onSave, initialData }: NodeFormProps) {
+export default function NodeForm({ open, onClose, onSave, onDelete, initialData }: NodeFormProps) {
   const [name, setName] = useState('');
   const [platforms, setPlatforms] = useState<string[]>(['快手']);
   const [identityLevel, setIdentityLevel] = useState<1|2|3|4|5>(3);
@@ -211,12 +212,20 @@ export default function NodeForm({ open, onClose, onSave, initialData }: NodeFor
         </div>
 
         {/* Actions */}
-        <div className="flex gap-3 justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white">取消</button>
-          <button onClick={handleSave} disabled={!name.trim()}
-            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
-            {initialData ? '保存' : '添加'}
-          </button>
+        <div className="flex gap-3 justify-between">
+          {initialData && onDelete ? (
+            <button onClick={onDelete}
+              className="px-4 py-2 text-sm text-red-400 hover:text-red-300 bg-red-900/30 rounded-lg">
+              删除主播
+            </button>
+          ) : <div />}
+          <div className="flex gap-3">
+            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white">取消</button>
+            <button onClick={handleSave} disabled={!name.trim()}
+              className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
+              {initialData ? '保存' : '添加'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
