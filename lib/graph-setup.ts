@@ -24,19 +24,19 @@ function degreeToSize(degree: number, maxDegree: number): number {
 // Calculate combo bounds from member node positions
 function calcComboBounds(memberIds: string[], positions: Record<string, { x: number; y: number }>) {
   const pts = memberIds.map(id => positions[id]).filter(Boolean);
-  if (pts.length === 0) return { x: 0, y: 0, rw: 120, rh: 120 };
-  const pad = 70;
+  if (pts.length === 0) return { x: 0, y: 0, size: 200 };
+  const pad = 110; // extra space for node size + label + breathing room
   const xs = pts.map(p => p.x);
   const ys = pts.map(p => p.y);
   const minX = Math.min(...xs) - pad;
   const maxX = Math.max(...xs) + pad;
   const minY = Math.min(...ys) - pad;
   const maxY = Math.max(...ys) + pad;
+  const diameter = Math.max(maxX - minX, maxY - minY, 200);
   return {
     x: (minX + maxX) / 2,
     y: (minY + maxY) / 2,
-    rw: Math.max(maxX - minX, 120),
-    rh: Math.max(maxY - minY, 120),
+    size: diameter,
   };
 }
 
@@ -116,7 +116,7 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
         labelFontWeight: 'bold' as const,
         labelPlacement: 'center' as const,
         labelOffsetY: 0,
-        ...(badges.length > 0 ? { badges } : {}),
+        ...(badges.length > 0 ? { badges, badge: true } : { badge: false }),
         ...(pos[node.id] ? { x: pos[node.id].x, y: pos[node.id].y } : {}),
       },
       data: { _originalData: node },
@@ -159,7 +159,7 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
       style: {
         x: bounds.x,
         y: bounds.y,
-        size: Math.max(bounds.rw, bounds.rh),
+        size: bounds.size,
         fill: GROUP_COLORS[colorIndex],
         stroke: GROUP_BORDER_COLORS[colorIndex],
         lineWidth: 2,

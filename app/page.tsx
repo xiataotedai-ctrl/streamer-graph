@@ -354,11 +354,17 @@ export default function Home() {
     }
   }, [graphData, updateData, isReadOnly, showToast]);
 
-  // --- Right-click context menu ---
+  // --- Right-click context menu (on node) ---
   const handleContextMenu = useCallback((nodeId: string, x: number, y: number) => {
     if (isReadOnly) return;
     setSelectedNodeId(nodeId);
     setContextMenu({ nodeId, x, y });
+  }, [isReadOnly]);
+
+  // --- Right-click context menu (on canvas blank) ---
+  const handleCanvasContextMenu = useCallback((x: number, y: number) => {
+    if (isReadOnly) return;
+    setContextMenu({ nodeId: '__canvas__', x, y });
   }, [isReadOnly]);
 
   // --- Hover info ---
@@ -575,6 +581,7 @@ export default function Home() {
           onNodeContextMenu={handleContextMenu}
           onNodeHover={handleHover}
           onCanvasDblClick={handleCanvasDblClick}
+          onCanvasContextMenu={handleCanvasContextMenu}
           selectedNodeId={selectedNodeId}
         />
 
@@ -742,14 +749,36 @@ export default function Home() {
 
         {/* Right-click context menu */}
         {contextMenu && !isReadOnly && (() => {
-          const ctxNode = graphData.nodes.find(n => n.id === contextMenu.nodeId);
+          const isCanvas = contextMenu.nodeId === '__canvas__';
+          const ctxNode = isCanvas ? null : graphData.nodes.find(n => n.id === contextMenu.nodeId);
+
+          // Canvas right-click menu
+          if (isCanvas) {
+            return (
+              <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)} onContextMenu={e => { e.preventDefault(); setContextMenu(null); }}>
+                <div className="absolute bg-[#1a1a2e] border border-gray-700 rounded-lg py-1 shadow-xl min-w-[160px]"
+                  style={{ left: contextMenu.x, top: contextMenu.y }}
+                  onClick={e => e.stopPropagation()} onContextMenu={e => e.stopPropagation()}>
+                  <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-800">画布操作</div>
+                  <button onClick={() => { setEditingNode(null); setShowNodeForm(true); setContextMenu(null); }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-white/5 hover:text-white">添加主播</button>
+                  <button onClick={() => { setEditingGroup(null); setShowGroupForm(true); setContextMenu(null); }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-white/5 hover:text-white">创建圈层</button>
+                  <button onClick={() => { setConnectMode(true); setConnectSource(null); setContextMenu(null); showToast('连接模式：先点起点，再点目标'); }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-white/5 hover:text-white">建立关系</button>
+                </div>
+              </div>
+            );
+          }
+
+          // Node right-click menu
           if (!ctxNode) return null;
           const nodeGroups = graphData.groups.filter(g => g.memberIds.includes(ctxNode.id));
           return (
-            <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)}>
+            <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)} onContextMenu={e => { e.preventDefault(); setContextMenu(null); }}>
               <div className="absolute bg-[#1a1a2e] border border-gray-700 rounded-lg py-1 shadow-xl min-w-[160px]"
                 style={{ left: contextMenu.x, top: contextMenu.y }}
-                onClick={e => e.stopPropagation()}>
+                onClick={e => e.stopPropagation()} onContextMenu={e => e.stopPropagation()}>
                 <div className="px-3 py-1.5 text-xs text-gray-500 border-b border-gray-800">{ctxNode.name}</div>
                 <button onClick={() => { setEditingNode(ctxNode); setShowNodeForm(true); setContextMenu(null); }}
                   className="w-full text-left px-3 py-1.5 text-xs text-gray-400 hover:bg-white/5 hover:text-white">编辑</button>
