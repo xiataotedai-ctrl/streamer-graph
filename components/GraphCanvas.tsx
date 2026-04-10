@@ -17,9 +17,10 @@ interface GraphCanvasProps {
   sizeMode?: 'manual' | 'auto';
   showAnnotations?: boolean;
   annotationFields?: string[];
+  hiddenNodeIds?: Set<string>;
 }
 
-export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick, highlightedNodes, connectMode, connectSource, sizeMode, showAnnotations, annotationFields }: GraphCanvasProps) {
+export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeClick, onCanvasClick, highlightedNodes, connectMode, connectSource, sizeMode, showAnnotations, annotationFields, hiddenNodeIds }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const dataRef = useRef<GraphData>(data);
@@ -207,6 +208,25 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
       console.warn('setState failed:', err);
     }
   }, [highlightedNodes, data, graphReady]);
+
+  // Handle hidden nodes (per-node visibility toggle)
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph || !graphReady) return;
+    if (!hiddenNodeIds || hiddenNodeIds.size === 0) return;
+
+    try {
+      const stateMap: Record<string, string[]> = {};
+      data.nodes.forEach(n => {
+        stateMap[n.id] = hiddenNodeIds.has(n.id) ? ['dim'] : [];
+      });
+      data.edges.forEach(e => {
+        const anyHidden = hiddenNodeIds.has(e.source) || hiddenNodeIds.has(e.target);
+        stateMap[e.id] = anyHidden ? ['dim'] : [];
+      });
+      graph.setElementState(stateMap);
+    } catch {}
+  }, [hiddenNodeIds, data.nodes, data.edges, graphReady]);
 
   return (
     <div

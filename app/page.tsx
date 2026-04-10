@@ -79,6 +79,8 @@ export default function Home() {
   const [showSubgraph, setShowSubgraph] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [hiddenNodeIds, setHiddenNodeIds] = useState<Set<string>>(new Set());
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -320,26 +322,78 @@ export default function Home() {
     });
   }, [graphData, showToast]);
 
-  const handleExportImage = useCallback((format: 'png' | 'svg') => {
+  const handleExportImage = useCallback((mode: 'all' | 'visible') => {
     const graph = (window as any).__g6Graph;
     if (!graph) {
       showToast('图表未就绪');
       return;
     }
+    setExportMenuOpen(false);
     try {
-      const dataURL = graph.toDataURL(format === 'svg' ? 'image/svg+xml' : 'image/png', {
-        backgroundColor: '#0f0f1a',
-        padding: [20, 20, 20, 20],
-      });
-      const a = document.createElement('a');
-      a.href = dataURL;
-      a.download = `${graphData.metadata.name || 'streamer-graph'}-${new Date().toISOString().slice(0, 10)}.${format}`;
-      a.click();
-      showToast(`已导出 ${format.toUpperCase()} 图片`);
+      if (mode === 'visible') {
+        // Temporarily hide dimmed/hidden nodes for clean export
+        const stateMap: Record<string, string[]> = {};
+        const visibleIds = new Set(
+          graphData.nodes
+            .filter(n => !hiddenNodeIds.has(n.id))
+            .map(n => n.id)
+        );
+        graphData.nodes.forEach(n => {
+          stateMap[n.id] = visibleIds.has(n.id) ? [] : ['dim'];
+        });
+        graphData.edges.forEach(e => {
+          const bothVisible = visibleIds.has(e.source) && visibleIds.has(e.target);
+          stateMap[e.id] = bothVisible ? [] : ['dim'];
+        });
+        // Set dim to fully transparent for export
+        graph.setElementState(stateMap);
+
+        // Patch dim state to be fully invisible for export
+        const origDim = { ...graph.getNodeData().reduce((acc: any, n: any) => { acc[n.id] = n.style; return acc; }, {}) };
+
+        // Use a short timeout to let G6 render the state change
+        setTimeout(() => {
+          try {
+            const dataURL = graph.toDataURL('image/png', {
+              backgroundColor: '#0f0f1a',
+              padding: [20, 20, 20, 20],
+            });
+            const a = document.createElement('a');
+            a.href = dataURL;
+            a.download = `${graphData.metadata.name || 'streamer-graph'}-${new Date().toISOString().slice(0, 10)}.png`;
+            a.click();
+            showToast(`已导出可见节点 (${visibleIds.size} 人)`);
+          } catch {
+            showToast('导出失败');
+          }
+        }, 100);
+      } else {
+        // Export all — temporarily show all nodes
+        const stateMap: Record<string, string[]> = {};
+        graphData.nodes.forEach(n => { stateMap[n.id] = []; });
+        graphData.edges.forEach(e => { stateMap[e.id] = []; });
+        graph.setElementState(stateMap);
+
+        setTimeout(() => {
+          try {
+            const dataURL = graph.toDataURL('image/png', {
+              backgroundColor: '#0f0f1a',
+              padding: [20, 20, 20, 20],
+            });
+            const a = document.createElement('a');
+            a.href = dataURL;
+            a.download = `${graphData.metadata.name || 'streamer-graph'}-${new Date().toISOString().slice(0, 10)}.png`;
+            a.click();
+            showToast(`已导出全部节点 (${graphData.nodes.length} 人)`);
+          } catch {
+            showToast('导出失败');
+          }
+        }, 100);
+      }
     } catch {
       showToast('导出失败');
     }
-  }, [graphData, showToast]);
+  }, [graphData, hiddenNodeIds, showToast]);
 
   const handleExportSubgraph = useCallback((data: GraphData) => {
     const filename = `subgraph-${new Date().toISOString().slice(0, 10)}.json`;
@@ -382,17 +436,34 @@ export default function Home() {
             <div className="space-y-1 max-h-52 overflow-y-auto">
               {graphData.nodes
                 .filter(n => !nodeSearch || n.name.includes(nodeSearch))
-                .map(node => (
-                <div key={node.id} className="flex items-center justify-between text-xs rounded px-2 py-1.5 hover:bg-white/5">
-                  <span className="text-gray-400 truncate mr-2">{node.name}</span>
-                  {!isReadOnly && (
-                    <button onClick={() => { setEditingNode(node); setShowNodeForm(true); }}
-                      className="text-blue-400 hover:text-blue-300 text-[10px] flex-shrink-0">
-                      编辑
-                    </button>
-                  )}
+                .map(node => {
+                  const isHidden = hiddenNodeIds.has(node.id);
+                  return (
+                  <div key={node.id} className={`flex items-center justify-between text-xs rounded px-2 py-1.5 hover:bg-white/5 ${isHidden ? 'opacity-40' : ''}`}>
+                    <span className="text-gray-400 truncate mr-2">{node.name}</span>
+                    {!isReadOnly && (
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => {
+                          setHiddenNodeIds(prev => {
+                            const next = new Set(prev);
+                            if (next.has(node.id)) next.delete(node.id);
+                            else next.add(node.id);
+                            return next;
+                          });
+                        }}
+                          className={`text-[10px] flex-shrink-0 ${isHidden ? 'text-gray-600 hover:text-gray-400' : 'text-green-500 hover:text-green-400'}`}
+                          title={isHidden ? '显示节点' : '隐藏节点'}>
+                          {isHidden ? '◉' : '◎'}
+                        </button>
+                        <button onClick={() => { setEditingNode(node); setShowNodeForm(true); }}
+                          className="text-blue-400 hover:text-blue-300 text-[10px] flex-shrink-0">
+                          编辑
+                        </button>
+                      </div>
+                    )}
                 </div>
-              ))}
+                );
+                })}
             </div>
           </div>
         )}
@@ -432,6 +503,7 @@ export default function Home() {
           sizeMode={sizeMode}
           showAnnotations={showAnnotations}
           annotationFields={annotationFields}
+          hiddenNodeIds={hiddenNodeIds}
         />
 
         {/* Top Toolbar */}
@@ -533,10 +605,24 @@ export default function Home() {
                 className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
                 分享链接
               </button>
-              <button onClick={() => handleExportImage('png')}
-                className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
-                导出图片
-              </button>
+              <div className="relative">
+                <button onClick={() => setExportMenuOpen(!exportMenuOpen)}
+                  className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
+                  导出图片 ▾
+                </button>
+                {exportMenuOpen && (
+                  <div className="absolute top-9 right-0 bg-[#1a1a2e] border border-gray-700 rounded-lg py-1 z-30 w-36">
+                    <button onClick={() => handleExportImage('visible')}
+                      className="w-full text-left text-xs text-gray-400 hover:text-white hover:bg-white/5 px-3 py-2">
+                      导出可见节点
+                    </button>
+                    <button onClick={() => handleExportImage('all')}
+                      className="w-full text-left text-xs text-gray-400 hover:text-white hover:bg-white/5 px-3 py-2">
+                      导出全部
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
