@@ -354,43 +354,51 @@ export default function Home() {
     }
   }, [graphData, updateData, isReadOnly, showToast]);
 
-  // --- Right-click via native DOM (not G6 events) ---
+  // --- Right-click via native DOM + G6 coordinate conversion ---
   useEffect(() => {
     if (isReadOnly) return;
     const handler = (e: MouseEvent) => {
       e.preventDefault();
       const graph = (window as any).__g6Graph;
-      if (!graph) return;
-      // Try to find node at click position using G6
-      const canvasEl = document.querySelector('.g6-graph-container canvas') || document.querySelector('canvas');
-      if (!canvasEl) return;
-      const rect = (canvasEl as HTMLElement).getBoundingClientRect();
-      // G6 canvas coordinates
-      const x = e.clientX;
-      const y = e.clientY;
+      if (!graph) {
+        // No graph, just show canvas menu
+        setContextMenu({ nodeId: '__canvas__', x: e.clientX, y: e.clientY });
+        return;
+      }
 
-      // Check all nodes to see if click is near one
+      // Convert client coords to G6 canvas (world) coords
+      let canvasX = 0, canvasY = 0;
+      try {
+        const cp = graph.getCanvasByClient([e.clientX, e.clientY]);
+        canvasX = cp[0]; canvasY = cp[1];
+      } catch {
+        setContextMenu({ nodeId: '__canvas__', x: e.clientX, y: e.clientY });
+        return;
+      }
+
+      // Find closest node to canvas coords
       let hitNodeId: string | null = null;
+      let minDist = Infinity;
       try {
         for (const node of graphData.nodes) {
           const pos = graph.getElementPosition(node.id);
           if (!pos) continue;
-          // Convert G6 coords to screen coords (approximate)
-          const cam = graph.getCamera?.();
-          const zoom = cam?.getZoom?.() ?? 1;
-          const camPos = cam?.getPosition?.() ?? { x: 0, y: 0 };
-          const screenX = rect.left + (pos.x - camPos.x) * zoom + rect.width / 2;
-          const screenY = rect.top + (pos.y - camPos.y) * zoom + rect.height / 2;
-          const dist = Math.sqrt((x - screenX) ** 2 + (y - screenY) ** 2);
-          if (dist < 35) { hitNodeId = node.id; break; }
+          const dx = canvasX - pos.x;
+          const dy = canvasY - pos.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          // Hit threshold: 50px in canvas space
+          if (dist < 50 && dist < minDist) {
+            minDist = dist;
+            hitNodeId = node.id;
+          }
         }
       } catch {}
 
       if (hitNodeId) {
         setSelectedNodeId(hitNodeId);
-        setContextMenu({ nodeId: hitNodeId, x, y });
+        setContextMenu({ nodeId: hitNodeId, x: e.clientX, y: e.clientY });
       } else {
-        setContextMenu({ nodeId: '__canvas__', x, y });
+        setContextMenu({ nodeId: '__canvas__', x: e.clientX, y: e.clientY });
       }
     };
     window.addEventListener('contextmenu', handler);
@@ -453,6 +461,9 @@ export default function Home() {
       return;
     }
     setExportMenuOpen(false);
+    // Boost resolution for high-quality export
+    const origDPR = globalThis.devicePixelRatio;
+    globalThis.devicePixelRatio = 3;
     try {
       if (mode === 'visible') {
         const visibleIds = new Set(
@@ -471,7 +482,7 @@ export default function Home() {
         graph.setElementState(stateMap);
 
         // Wait for G6 to render the state change
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 800));
         const dataURL: string = await graph.toDataURL({ type: 'image/png', mode: 'overall' });
         const a = document.createElement('a');
         a.href = dataURL;
@@ -484,7 +495,7 @@ export default function Home() {
         graphData.edges.forEach(e => { stateMap[e.id] = []; });
         graph.setElementState(stateMap);
 
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 800));
         const dataURL: string = await graph.toDataURL({ type: 'image/png', mode: 'overall' });
         const a = document.createElement('a');
         a.href = dataURL;
@@ -495,6 +506,8 @@ export default function Home() {
     } catch (e) {
       console.error('Export failed:', e);
       showToast('导出失败');
+    } finally {
+      globalThis.devicePixelRatio = origDPR;
     }
   }, [graphData, hiddenNodeIds, showToast]);
 
