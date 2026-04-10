@@ -10,9 +10,10 @@ interface GraphCanvasProps {
   onEdgeClick?: (edgeId: string | null) => void;
   onCanvasClick?: () => void;
   highlightedNodes?: Set<string>;
+  onEdgeCreate?: (source: string, target: string, position: { x: number; y: number }) => void;
 }
 
-export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasClick, highlightedNodes }: GraphCanvasProps) {
+export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasClick, highlightedNodes, onEdgeCreate }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const dataRef = useRef<GraphData>(data);
@@ -49,6 +50,22 @@ export default function GraphCanvas({ data, onNodeClick, onEdgeClick, onCanvasCl
     if (onCanvasClick) {
       graph.on('canvas:click', () => {
         onCanvasClick();
+      });
+    }
+
+    // Edge creation via create-edge behavior
+    if (onEdgeCreate) {
+      graph.on('aftercreateedge', (evt: any) => {
+        const edgeData = evt?.edge || evt?.data;
+        if (edgeData) {
+          const source = typeof edgeData.source === 'string' ? edgeData.source : edgeData.source?.id;
+          const target = typeof edgeData.target === 'string' ? edgeData.target : edgeData.target?.id;
+          if (source && target) {
+            // Get the drop position for the type selector popup
+            const clientPos = evt?.client || evt?.canvas;
+            onEdgeCreate(source, target, { x: clientPos?.x || 0, y: clientPos?.y || 0 });
+          }
+        }
       });
     }
 

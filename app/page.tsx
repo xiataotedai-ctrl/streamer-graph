@@ -3,8 +3,9 @@
 import { useState, useCallback } from 'react';
 import GraphCanvas from '@/components/GraphCanvas';
 import NodeForm from '@/components/NodeForm';
-import { GraphData, StreamerNode } from '@/lib/types';
-import { createEmptyGraph, addNode, updateNode, removeNode } from '@/lib/graph-data';
+import EdgeTypeSelector from '@/components/EdgeTypeSelector';
+import { GraphData, StreamerNode, RelationshipType } from '@/lib/types';
+import { createEmptyGraph, addNode, updateNode, removeNode, addEdge, genId } from '@/lib/graph-data';
 import { autoSave } from '@/lib/storage';
 
 export default function Home() {
@@ -33,6 +34,9 @@ export default function Home() {
   const [highlightedNodes, setHighlightedNodes] = useState<Set<string>>(new Set());
   const [showNodeForm, setShowNodeForm] = useState(false);
   const [editingNode, setEditingNode] = useState<StreamerNode | null>(null);
+  const [edgeSelectorOpen, setEdgeSelectorOpen] = useState(false);
+  const [edgeSelectorPos, setEdgeSelectorPos] = useState({ x: 0, y: 0 });
+  const [pendingEdge, setPendingEdge] = useState<{ source: string; target: string } | null>(null);
   const [isReadOnly] = useState(() => {
     if (typeof window === 'undefined') return false;
     return new URLSearchParams(window.location.search).has('share');
@@ -75,6 +79,25 @@ export default function Home() {
     }
   }, [selectedNodeId, graphData, updateData]);
 
+  const handleEdgeCreate = useCallback((source: string, target: string, position: { x: number; y: number }) => {
+    setPendingEdge({ source, target });
+    setEdgeSelectorPos(position);
+    setEdgeSelectorOpen(true);
+  }, []);
+
+  const handleEdgeTypeSelect = useCallback((type: RelationshipType) => {
+    if (!pendingEdge) return;
+    const edge = {
+      id: genId(),
+      source: pendingEdge.source,
+      target: pendingEdge.target,
+      type,
+    };
+    updateData(addEdge(graphData, edge));
+    setEdgeSelectorOpen(false);
+    setPendingEdge(null);
+  }, [pendingEdge, graphData, updateData]);
+
   return (
     <main className="flex h-screen w-screen overflow-hidden">
       {/* Left Sidebar - Tag Filters */}
@@ -90,6 +113,7 @@ export default function Home() {
           onNodeClick={handleNodeClick}
           onCanvasClick={() => { setSelectedNodeId(null); setEditingNode(null); }}
           highlightedNodes={highlightedNodes}
+          onEdgeCreate={handleEdgeCreate}
         />
 
         {/* Top Toolbar */}
@@ -140,6 +164,14 @@ export default function Home() {
         onClose={() => { setShowNodeForm(false); setEditingNode(null); }}
         onSave={handleNodeSave}
         initialData={editingNode}
+      />
+
+      {/* Edge Type Selector */}
+      <EdgeTypeSelector
+        open={edgeSelectorOpen}
+        position={edgeSelectorPos}
+        onSelect={handleEdgeTypeSelect}
+        onCancel={() => { setEdgeSelectorOpen(false); setPendingEdge(null); }}
       />
     </main>
   );

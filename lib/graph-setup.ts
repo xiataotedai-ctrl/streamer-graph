@@ -142,6 +142,7 @@ export function createGraph(container: HTMLElement) {
       'drag-element',
       'hover-activate',
       { type: 'brush-select', trigger: 'shift' },
+      { type: 'create-edge', trigger: 'drag', key: 'create-edge' },
     ],
     plugins: [
       {
