@@ -2,8 +2,9 @@
 
 import { useState, useCallback } from 'react';
 import GraphCanvas from '@/components/GraphCanvas';
-import { GraphData } from '@/lib/types';
-import { createEmptyGraph } from '@/lib/graph-data';
+import NodeForm from '@/components/NodeForm';
+import { GraphData, StreamerNode } from '@/lib/types';
+import { createEmptyGraph, addNode, updateNode, removeNode } from '@/lib/graph-data';
 import { autoSave } from '@/lib/storage';
 
 export default function Home() {
@@ -30,6 +31,8 @@ export default function Home() {
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [highlightedNodes, setHighlightedNodes] = useState<Set<string>>(new Set());
+  const [showNodeForm, setShowNodeForm] = useState(false);
+  const [editingNode, setEditingNode] = useState<StreamerNode | null>(null);
   const [isReadOnly] = useState(() => {
     if (typeof window === 'undefined') return false;
     return new URLSearchParams(window.location.search).has('share');
@@ -40,6 +43,37 @@ export default function Home() {
     setGraphData(newData);
     autoSave(JSON.stringify(newData));
   }, []);
+
+  const handleNodeSave = useCallback((node: StreamerNode) => {
+    const existing = graphData.nodes.find(n => n.id === node.id);
+    let newData: GraphData;
+    if (existing) {
+      newData = updateNode(graphData, node.id, node);
+    } else {
+      newData = addNode(graphData, node);
+    }
+    updateData(newData);
+  }, [graphData, updateData]);
+
+  const handleNodeClick = useCallback((nodeId: string | null) => {
+    setSelectedNodeId(nodeId);
+    if (nodeId && !isReadOnly) {
+      const node = graphData.nodes.find(n => n.id === nodeId);
+      if (node) {
+        setEditingNode(node);
+        setShowNodeForm(true);
+      }
+    }
+  }, [graphData, isReadOnly]);
+
+  const handleDeleteNode = useCallback(() => {
+    if (selectedNodeId) {
+      updateData(removeNode(graphData, selectedNodeId));
+      setSelectedNodeId(null);
+      setEditingNode(null);
+      setShowNodeForm(false);
+    }
+  }, [selectedNodeId, graphData, updateData]);
 
   return (
     <main className="flex h-screen w-screen overflow-hidden">
@@ -53,8 +87,8 @@ export default function Home() {
       <div className="flex-1 relative">
         <GraphCanvas
           data={graphData}
-          onNodeClick={setSelectedNodeId}
-          onCanvasClick={() => setSelectedNodeId(null)}
+          onNodeClick={handleNodeClick}
+          onCanvasClick={() => { setSelectedNodeId(null); setEditingNode(null); }}
           highlightedNodes={highlightedNodes}
         />
 
@@ -62,7 +96,8 @@ export default function Home() {
         {!isReadOnly && (
           <div className="absolute top-4 left-4 right-4 flex justify-between items-center pointer-events-none">
             <div className="pointer-events-auto bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-4 py-2 flex gap-3">
-              <button className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
+              <button onClick={() => { setEditingNode(null); setShowNodeForm(true); }}
+                className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
                 + 添加主播
               </button>
               <button className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
@@ -70,6 +105,12 @@ export default function Home() {
               </button>
             </div>
             <div className="pointer-events-auto bg-[#1a1a2e]/90 backdrop-blur rounded-lg px-4 py-2 flex gap-3">
+              {selectedNodeId && (
+                <button onClick={handleDeleteNode}
+                  className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 bg-red-900/30 rounded">
+                  删除
+                </button>
+              )}
               <button className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
                 导出
               </button>
@@ -92,6 +133,14 @@ export default function Home() {
           {graphData.nodes.length} 位主播 · {graphData.edges.length} 条关系 · {graphData.groups.length} 个圈层
         </div>
       </div>
+
+      {/* Node Form Modal */}
+      <NodeForm
+        open={showNodeForm}
+        onClose={() => { setShowNodeForm(false); setEditingNode(null); }}
+        onSave={handleNodeSave}
+        initialData={editingNode}
+      />
     </main>
   );
 }
