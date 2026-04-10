@@ -4,8 +4,9 @@ import { useState, useCallback } from 'react';
 import GraphCanvas from '@/components/GraphCanvas';
 import NodeForm from '@/components/NodeForm';
 import EdgeTypeSelector from '@/components/EdgeTypeSelector';
-import { GraphData, StreamerNode, RelationshipType } from '@/lib/types';
-import { createEmptyGraph, addNode, updateNode, removeNode, addEdge, genId } from '@/lib/graph-data';
+import GroupForm from '@/components/GroupForm';
+import { GraphData, StreamerNode, StreamerGroup, RelationshipType } from '@/lib/types';
+import { createEmptyGraph, addNode, updateNode, removeNode, addEdge, addGroup, updateGroup, genId } from '@/lib/graph-data';
 import { autoSave } from '@/lib/storage';
 
 export default function Home() {
@@ -34,6 +35,8 @@ export default function Home() {
   const [highlightedNodes, setHighlightedNodes] = useState<Set<string>>(new Set());
   const [showNodeForm, setShowNodeForm] = useState(false);
   const [editingNode, setEditingNode] = useState<StreamerNode | null>(null);
+  const [showGroupForm, setShowGroupForm] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<StreamerGroup | null>(null);
   const [edgeSelectorOpen, setEdgeSelectorOpen] = useState(false);
   const [edgeSelectorPos, setEdgeSelectorPos] = useState({ x: 0, y: 0 });
   const [pendingEdge, setPendingEdge] = useState<{ source: string; target: string } | null>(null);
@@ -98,6 +101,30 @@ export default function Home() {
     setPendingEdge(null);
   }, [pendingEdge, graphData, updateData]);
 
+  const handleGroupSave = useCallback((group: StreamerGroup) => {
+    let newData: GraphData;
+    const existing = graphData.groups.find(g => g.id === group.id);
+    if (existing) {
+      newData = updateGroup(graphData, group.id, group);
+    } else {
+      newData = addGroup(graphData, group);
+    }
+    // Update member nodes' groupIds
+    const updatedNodes = newData.nodes.map(node => {
+      const isInGroup = group.memberIds.includes(node.id);
+      const currentGroupIds = node.groupIds || [];
+      if (isInGroup && !currentGroupIds.includes(group.id)) {
+        return { ...node, groupIds: [...currentGroupIds, group.id] };
+      }
+      if (!isInGroup && currentGroupIds.includes(group.id)) {
+        return { ...node, groupIds: currentGroupIds.filter(id => id !== group.id) };
+      }
+      return node;
+    });
+    newData = { ...newData, nodes: updatedNodes };
+    updateData(newData);
+  }, [graphData, updateData]);
+
   return (
     <main className="flex h-screen w-screen overflow-hidden">
       {/* Left Sidebar - Tag Filters */}
@@ -124,7 +151,8 @@ export default function Home() {
                 className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
                 + 添加主播
               </button>
-              <button className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
+              <button onClick={() => { setEditingGroup(null); setShowGroupForm(true); }}
+                className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
                 + 创建圈层
               </button>
             </div>
@@ -164,6 +192,15 @@ export default function Home() {
         onClose={() => { setShowNodeForm(false); setEditingNode(null); }}
         onSave={handleNodeSave}
         initialData={editingNode}
+      />
+
+      {/* Group Form Modal */}
+      <GroupForm
+        open={showGroupForm}
+        onClose={() => { setShowGroupForm(false); setEditingGroup(null); }}
+        onSave={handleGroupSave}
+        nodes={graphData.nodes}
+        initialData={editingGroup}
       />
 
       {/* Edge Type Selector */}
