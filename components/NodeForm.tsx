@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { StreamerNode, StreamerTags } from '@/lib/types';
 import { genId } from '@/lib/graph-data';
-import { PLATFORMS, REGIONS, TALENTS, CATEGORY_COLORS } from '@/lib/constants';
+import { PLATFORMS, REGIONS, TALENTS, CATEGORY_COLORS, CATEGORY_GROUPS, GAMES } from '@/lib/constants';
 
 interface NodeFormProps {
   open: boolean;
@@ -23,6 +23,8 @@ export default function NodeForm({ open, onClose, onSave, initialData }: NodeFor
   const [customCategory, setCustomCategory] = useState('');
   const [customRegion, setCustomRegion] = useState('');
   const [customTalent, setCustomTalent] = useState('');
+  const [customSection, setCustomSection] = useState('');
+  const [showAllGames, setShowAllGames] = useState(false);
 
   useEffect(() => {
     if (initialData) {
@@ -66,9 +68,22 @@ export default function NodeForm({ open, onClose, onSave, initialData }: NodeFor
     onClose();
   };
 
+  const TagButton = ({ dim, value, color }: { dim: keyof StreamerTags; value: string; color?: string }) => {
+    const active = tags[dim].includes(value);
+    return (
+      <button
+        onClick={() => toggleTag(dim, value)}
+        className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${active ? 'bg-white/10' : 'border-gray-700 text-gray-500'}`}
+        style={active ? { borderColor: color || '#4fc3f7', color: color || '#4fc3f7' } : {}}
+      >
+        {value}
+      </button>
+    );
+  };
+
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-[#1a1a2e] rounded-xl p-6 w-[480px] max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-[#1a1a2e] rounded-xl p-6 w-[520px] max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h2 className="text-lg font-bold mb-4">{initialData ? '编辑主播' : '添加主播'}</h2>
 
         {/* 基本信息 */}
@@ -100,22 +115,45 @@ export default function NodeForm({ open, onClose, onSave, initialData }: NodeFor
           </div>
         </div>
 
-        {/* 品类标签 */}
+        {/* 品类 — 分组展示 */}
         <div className="mb-3">
-          <label className="text-xs text-gray-400 mb-1 block">品类</label>
-          <div className="flex flex-wrap gap-1.5">
-            {Object.keys(CATEGORY_COLORS).map(cat => (
-              <button key={cat} onClick={() => toggleTag('categories', cat)}
-                className={`text-xs px-2.5 py-1 rounded-full border ${tags.categories.includes(cat) ? 'bg-white/10 text-white' : 'border-gray-700 text-gray-500'}`}
-                style={tags.categories.includes(cat) ? { borderColor: CATEGORY_COLORS[cat], color: CATEGORY_COLORS[cat] } : {}}>
-                {cat}
-              </button>
-            ))}
-          </div>
+          <label className="text-xs text-gray-400 mb-1.5 block">品类</label>
+          {CATEGORY_GROUPS.map(group => (
+            <div key={group.label} className="mb-2">
+              <span className="text-[10px] text-gray-600 mr-1">{group.label}</span>
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {group.categories.flat().map(cat => (
+                  <TagButton key={cat} dim="categories" value={cat} color={CATEGORY_COLORS[cat]} />
+                ))}
+              </div>
+            </div>
+          ))}
           <div className="flex gap-2 mt-1.5">
             <input value={customCategory} onChange={e => setCustomCategory(e.target.value)} placeholder="自定义品类"
               className="flex-1 bg-[#0f0f1a] border border-gray-700 rounded px-2 py-1 text-xs" />
             <button onClick={() => { if (customCategory) { toggleTag('categories', customCategory); setCustomCategory(''); } }}
+              className="text-xs px-2 py-1 bg-gray-700 rounded hover:bg-gray-600">+</button>
+          </div>
+        </div>
+
+        {/* 板块/游戏 */}
+        <div className="mb-3">
+          <label className="text-xs text-gray-400 mb-1 block">板块 / 游戏</label>
+          <div className="flex flex-wrap gap-1.5">
+            {(showAllGames ? GAMES : GAMES.slice(0, 8)).map(game => (
+              <TagButton key={game} dim="sections" value={game} color="#42a5f5" />
+            ))}
+          </div>
+          {GAMES.length > 8 && (
+            <button onClick={() => setShowAllGames(!showAllGames)}
+              className="text-[10px] text-gray-600 hover:text-gray-400 mt-1">
+              {showAllGames ? '收起' : `展开全部 (${GAMES.length})`}
+            </button>
+          )}
+          <div className="flex gap-2 mt-1.5">
+            <input value={customSection} onChange={e => setCustomSection(e.target.value)} placeholder="自定义游戏/板块"
+              className="flex-1 bg-[#0f0f1a] border border-gray-700 rounded px-2 py-1 text-xs" />
+            <button onClick={() => { if (customSection) { toggleTag('sections', customSection); setCustomSection(''); } }}
               className="text-xs px-2 py-1 bg-gray-700 rounded hover:bg-gray-600">+</button>
           </div>
         </div>
