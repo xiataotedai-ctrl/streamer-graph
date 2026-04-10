@@ -9,7 +9,7 @@ import GroupForm from '@/components/GroupForm';
 import TagFilterSidebar from '@/components/TagFilterSidebar';
 import SubgraphPanel from '@/components/SubgraphPanel';
 import { GraphData, StreamerNode, StreamerGroup, RelationshipEdge, RelationshipType, FilterState } from '@/lib/types';
-import { createEmptyGraph, addNode, updateNode, removeNode, addEdge, updateEdge, removeEdge, addGroup, updateGroup, genId } from '@/lib/graph-data';
+import { createEmptyGraph, addNode, updateNode, removeNode, addEdge, updateEdge, removeEdge, addGroup, updateGroup, removeGroup, genId } from '@/lib/graph-data';
 import { autoSave, exportJSON, importJSON } from '@/lib/storage';
 import { encodeShareData } from '@/lib/share';
 
@@ -262,6 +262,20 @@ export default function Home() {
     updateData(newData);
   }, [graphData, updateData]);
 
+  const handleDeleteGroup = useCallback((groupId: string) => {
+    const group = graphData.groups.find(g => g.id === groupId);
+    if (!group) return;
+    const updatedNodes = graphData.nodes.map(node => ({
+      ...node,
+      groupIds: (node.groupIds || []).filter(id => id !== groupId),
+      groupId: node.groupId === groupId ? undefined : node.groupId,
+    }));
+    const newData = removeGroup({ ...graphData, nodes: updatedNodes }, groupId);
+    updateData(newData);
+    setShowGroupForm(false);
+    setEditingGroup(null);
+  }, [graphData, updateData]);
+
   const handleCanvasClick = useCallback(() => {
     if (connectMode) {
       setConnectSource(null);
@@ -302,6 +316,27 @@ export default function Home() {
     }).catch(() => {
       prompt('复制以下链接：', url);
     });
+  }, [graphData, showToast]);
+
+  const handleExportImage = useCallback((format: 'png' | 'svg') => {
+    const graph = (window as any).__g6Graph;
+    if (!graph) {
+      showToast('图表未就绪');
+      return;
+    }
+    try {
+      const dataURL = graph.toDataURL(format === 'svg' ? 'image/svg+xml' : 'image/png', {
+        backgroundColor: '#0f0f1a',
+        padding: [20, 20, 20, 20],
+      });
+      const a = document.createElement('a');
+      a.href = dataURL;
+      a.download = `${graphData.metadata.name || 'streamer-graph'}-${new Date().toISOString().slice(0, 10)}.${format}`;
+      a.click();
+      showToast(`已导出 ${format.toUpperCase()} 图片`);
+    } catch {
+      showToast('导出失败');
+    }
   }, [graphData, showToast]);
 
   const handleExportSubgraph = useCallback((data: GraphData) => {
@@ -468,6 +503,10 @@ export default function Home() {
                 className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
                 分享链接
               </button>
+              <button onClick={() => handleExportImage('png')}
+                className="text-xs text-gray-300 hover:text-white px-3 py-1.5 bg-[#16213e] rounded">
+                导出图片
+              </button>
             </div>
           </div>
         )}
@@ -530,6 +569,7 @@ export default function Home() {
         open={showGroupForm}
         onClose={() => { setShowGroupForm(false); setEditingGroup(null); }}
         onSave={handleGroupSave}
+        onDelete={editingGroup ? () => handleDeleteGroup(editingGroup.id) : undefined}
         nodes={graphData.nodes}
         initialData={editingGroup}
       />

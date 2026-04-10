@@ -9,11 +9,12 @@ interface GroupFormProps {
   open: boolean;
   onClose: () => void;
   onSave: (group: StreamerGroup) => void;
+  onDelete?: () => void;
   nodes: StreamerNode[];
   initialData?: StreamerGroup | null;
 }
 
-export default function GroupForm({ open, onClose, onSave, nodes, initialData }: GroupFormProps) {
+export default function GroupForm({ open, onClose, onSave, onDelete, nodes, initialData }: GroupFormProps) {
   const [name, setName] = useState('');
   const [type, setType] = useState<StreamerGroup['type']>('family');
   const [colorIndex, setColorIndex] = useState(0);
@@ -104,12 +105,20 @@ export default function GroupForm({ open, onClose, onSave, nodes, initialData }:
           )}
         </div>
 
-        <div className="flex gap-3 justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white">取消</button>
-          <button onClick={handleSave} disabled={!name.trim()}
-            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
-            {initialData ? '保存' : '创建'}
-          </button>
+        <div className="flex gap-3 justify-between">
+          {initialData && onDelete ? (
+            <button onClick={onDelete}
+              className="px-4 py-2 text-sm text-red-400 hover:text-red-300 bg-red-900/30 rounded-lg">
+              删除圈层
+            </button>
+          ) : <div />}
+          <div className="flex gap-3">
+            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white">取消</button>
+            <button onClick={handleSave} disabled={!name.trim()}
+              className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
+              {initialData ? '保存' : '创建'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

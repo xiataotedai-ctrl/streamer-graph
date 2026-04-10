@@ -26,6 +26,8 @@ export default function NodeForm({ open, onClose, onSave, onDelete, initialData 
   const [customTalent, setCustomTalent] = useState('');
   const [customSection, setCustomSection] = useState('');
   const [showAllGames, setShowAllGames] = useState(false);
+  const [customSize, setCustomSize] = useState<number | undefined>(undefined);
+  const [customColor, setCustomColor] = useState<string>('');
 
   useEffect(() => {
     if (initialData) {
@@ -34,12 +36,16 @@ export default function NodeForm({ open, onClose, onSave, onDelete, initialData 
       setIdentityLevel(initialData.identityLevel);
       setTags({ ...initialData.tags });
       setNotes(initialData.notes || '');
+      setCustomSize(initialData.customSize);
+      setCustomColor(initialData.customColor || '');
     } else {
       setName('');
       setPlatforms(['快手']);
       setIdentityLevel(3);
       setTags({ ...EMPTY_TAGS });
       setNotes('');
+      setCustomSize(undefined);
+      setCustomColor('');
     }
   }, [initialData, open]);
 
@@ -63,6 +69,8 @@ export default function NodeForm({ open, onClose, onSave, onDelete, initialData 
       platforms,
       tags,
       identityLevel,
+      customSize: customSize || undefined,
+      customColor: customColor || undefined,
       notes: notes.trim() || undefined,
     };
     onSave(node);
@@ -120,6 +128,36 @@ export default function NodeForm({ open, onClose, onSave, onDelete, initialData 
               <option value={4}>头部主播</option>
               <option value={5}>顶流</option>
             </select>
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs text-gray-400">自定义大小</label>
+              {customSize && (
+                <button onClick={() => setCustomSize(undefined)} className="text-[10px] text-gray-600 hover:text-gray-400">重置</button>
+              )}
+            </div>
+            <input type="range" min={16} max={100} value={customSize || 40}
+              onChange={e => setCustomSize(Number(e.target.value))}
+              className="w-full accent-blue-500" />
+            <div className="flex justify-between text-[10px] text-gray-600">
+              <span>小</span>
+              <span>{customSize || '自动'}</span>
+              <span>大</span>
+            </div>
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs text-gray-400">自定义颜色</label>
+              {customColor && (
+                <button onClick={() => setCustomColor('')} className="text-[10px] text-gray-600 hover:text-gray-400">重置</button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="color" value={customColor || '#4fc3f7'}
+                onChange={e => setCustomColor(e.target.value)}
+                className="w-8 h-8 rounded cursor-pointer bg-transparent border border-gray-700" />
+              <span className="text-xs text-gray-500">{customColor || '自动（跟随品类）'}</span>
+            </div>
           </div>
         </div>
 

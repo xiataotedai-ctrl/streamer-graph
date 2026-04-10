@@ -28,7 +28,7 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
 
   const nodes = data.nodes.map((node: StreamerNode) => {
     const mainCategory = node.tags.categories[0] || '';
-    const color = CATEGORY_COLORS[mainCategory] || DEFAULT_CATEGORY_COLOR;
+    const color = node.customColor || CATEGORY_COLORS[mainCategory] || DEFAULT_CATEGORY_COLOR;
 
     // Base size from identity level or auto mode
     let size: number;

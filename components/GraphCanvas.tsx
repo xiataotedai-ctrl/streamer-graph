@@ -111,6 +111,12 @@ export default function GraphCanvas({ data, onNodeClick, onNodeDblClick, onEdgeC
     return () => { (window as any).__g6SaveLayout = undefined; };
   });
 
+  // Expose graph instance for image export
+  useEffect(() => {
+    (window as any).__g6Graph = graphRef.current;
+    return () => { (window as any).__g6Graph = undefined; };
+  });
+
   // Create graph ONLY after data is loaded from localStorage (nodes > 0)
   useEffect(() => {
     if (!containerRef.current) return;
