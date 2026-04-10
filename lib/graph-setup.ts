@@ -101,9 +101,12 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
       }
     }
 
+    // Use last group as visual combo (most recently added takes priority)
+    const comboId = node.groupIds?.[node.groupIds.length - 1] || node.groupId || undefined;
+
     return {
       id: node.id,
-      // No combo binding — nodes are free-floating
+      ...(comboId ? { combo: comboId } : {}),
       style: {
         size,
         fill: color,
@@ -150,16 +153,12 @@ export function toG6Data(data: GraphData, sizeMode: 'manual' | 'auto' = 'manual'
     };
   });
 
-  // Combos: calculated from member positions, not bound to nodes
+  // Combos: G6 auto-sizes based on children
   const combos = data.groups.map((group: StreamerGroup, index: number) => {
     const colorIndex = index % GROUP_COLORS.length;
-    const bounds = calcComboBounds(group.memberIds, pos);
     return {
       id: group.id,
       style: {
-        x: bounds.x,
-        y: bounds.y,
-        size: bounds.size,
         fill: GROUP_COLORS[colorIndex],
         stroke: GROUP_BORDER_COLORS[colorIndex],
         lineWidth: 2,

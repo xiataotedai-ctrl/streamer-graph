@@ -354,18 +354,48 @@ export default function Home() {
     }
   }, [graphData, updateData, isReadOnly, showToast]);
 
-  // --- Right-click context menu (on node) ---
-  const handleContextMenu = useCallback((nodeId: string, x: number, y: number) => {
+  // --- Right-click via native DOM (not G6 events) ---
+  useEffect(() => {
     if (isReadOnly) return;
-    setSelectedNodeId(nodeId);
-    setContextMenu({ nodeId, x, y });
-  }, [isReadOnly]);
+    const handler = (e: MouseEvent) => {
+      e.preventDefault();
+      const graph = (window as any).__g6Graph;
+      if (!graph) return;
+      // Try to find node at click position using G6
+      const canvasEl = document.querySelector('.g6-graph-container canvas') || document.querySelector('canvas');
+      if (!canvasEl) return;
+      const rect = (canvasEl as HTMLElement).getBoundingClientRect();
+      // G6 canvas coordinates
+      const x = e.clientX;
+      const y = e.clientY;
 
-  // --- Right-click context menu (on canvas blank) ---
-  const handleCanvasContextMenu = useCallback((x: number, y: number) => {
-    if (isReadOnly) return;
-    setContextMenu({ nodeId: '__canvas__', x, y });
-  }, [isReadOnly]);
+      // Check all nodes to see if click is near one
+      let hitNodeId: string | null = null;
+      try {
+        for (const node of graphData.nodes) {
+          const pos = graph.getElementPosition(node.id);
+          if (!pos) continue;
+          // Convert G6 coords to screen coords (approximate)
+          const cam = graph.getCamera?.();
+          const zoom = cam?.getZoom?.() ?? 1;
+          const camPos = cam?.getPosition?.() ?? { x: 0, y: 0 };
+          const screenX = rect.left + (pos.x - camPos.x) * zoom + rect.width / 2;
+          const screenY = rect.top + (pos.y - camPos.y) * zoom + rect.height / 2;
+          const dist = Math.sqrt((x - screenX) ** 2 + (y - screenY) ** 2);
+          if (dist < 35) { hitNodeId = node.id; break; }
+        }
+      } catch {}
+
+      if (hitNodeId) {
+        setSelectedNodeId(hitNodeId);
+        setContextMenu({ nodeId: hitNodeId, x, y });
+      } else {
+        setContextMenu({ nodeId: '__canvas__', x, y });
+      }
+    };
+    window.addEventListener('contextmenu', handler);
+    return () => window.removeEventListener('contextmenu', handler);
+  }, [graphData.nodes, isReadOnly]);
 
   // --- Hover info ---
   const handleHover = useCallback((nodeId: string | null, x: number, y: number) => {
@@ -578,10 +608,8 @@ export default function Home() {
           annotationFields={annotationFields}
           hiddenNodeIds={hiddenNodeIds}
           onNodeDragEnd={handleNodeDragEnd}
-          onNodeContextMenu={handleContextMenu}
           onNodeHover={handleHover}
           onCanvasDblClick={handleCanvasDblClick}
-          onCanvasContextMenu={handleCanvasContextMenu}
           selectedNodeId={selectedNodeId}
         />
 
